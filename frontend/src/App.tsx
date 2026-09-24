@@ -2,6 +2,9 @@ import { useState } from "react";
 import { useContext, useRegistry, useTool } from "ai3ui";
 import { z } from "zod";
 
+/** mcp-adapter backend — not implemented yet. */
+const REGISTRY_SERVER_URL = "http://localhost:8000";
+
 export function App() {
   const [count, setCount] = useState(0);
 
@@ -38,8 +41,8 @@ export function App() {
     },
   });
 
-  // Read-back of everything registered — masked tools included.
-  const { tools, context } = useRegistry();
+  // Streams the registry from the backend over SSE — masked tools included.
+  const { tools, context, status, error } = useRegistry(REGISTRY_SERVER_URL);
 
   return (
     <main className="app">
@@ -53,6 +56,12 @@ export function App() {
       </section>
 
       <section className="debug">
+        <h2>Registry server</h2>
+        <p>
+          <code>{REGISTRY_SERVER_URL}</code> — {status}
+          {error && <em> ({error.message})</em>}
+        </p>
+
         <h2>Registered tools</h2>
         <ul>
           {tools.map((t) => (

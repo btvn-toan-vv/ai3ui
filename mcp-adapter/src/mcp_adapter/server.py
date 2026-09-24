@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib.metadata
 import json
 import logging
 import os
@@ -31,11 +32,14 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
+from fastmcp_docs.config import FastMCPDocsConfig
+from fastmcp_docs.extractor import ToolExtractor
+from fastmcp_docs.templates import get_default_favicon_svg, get_docs_ui_template
 from starlette.applications import Starlette
 from starlette.middleware import Middleware as StarletteMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
@@ -150,6 +154,7 @@ class SessionSSE:
                 "id": session_id,
                 "mcpUrl": _mcp_url_headers(scope["headers"], scope, session_id),
                 "postUrl": f"/sessions/{session_id}/messages",
+                "docsUrl": f"{_public_origin(scope)}/{session_id}/docs",
             }
             if not await emit(_sse_frame("session", payload)):
                 return
@@ -273,6 +278,80 @@ async def delete_session_endpoint(request: Request) -> Response:
     return JSONResponse({"ok": True})
 
 
+def _public_origin(scope: Scope) -> str:
+    """Scheme://host as the outside world reaches us (X-Forwarded aware)."""
+    hdrs = {k.decode().lower(): v.decode() for k, v in scope["headers"]}
+    proto = (hdrs.get("x-forwarded-proto") or scope.get("scheme", "http")).split(",")[0].strip()
+    host = (hdrs.get("x-forwarded-host") or hdrs.get("host") or "localhost").split(",")[0].strip()
+    return f"{proto}://{host}"
+
+
+async def session_docs_api(request: Request) -> Response:
+    """GET /{id}[/mcp]/api/tools — fastmcp-docs feed extracted live from the
+    session's FastMCP instance; masked tools never appear here."""
+    bridge: Bridge = request.app.state.bridge
+    session_id = request.path_params["session_id"]
+    runtime = await bridge.ensure_runtime(session_id)
+    if runtime is None:
+        return JSONResponse({"detail": "session not found"}, status_code=404)
+    registry = await ToolExtractor(verbose=False).extract_tools(runtime.server)
+    return JSONResponse(
+        {
+            "server": f"mcp-adapter:{session_id}",
+            "total_tools": len(registry),
+            "tools": registry,
+        }
+    )
+
+
+def _docs_prefix(path: str) -> str:
+    """Which mount the docs were served from: ``/{id}`` or ``/{id}/mcp`` —
+    the page's API fetch must stay under the same prefix."""
+    return path.rsplit("/docs", 1)[0]
+
+
+async def session_docs_page(request: Request) -> Response:
+    """GET /{id}[/mcp]/docs — human-facing Swagger-style page for the session."""
+    bridge: Bridge = request.app.state.bridge
+    session_id = request.path_params["session_id"]
+    runtime = await bridge.ensure_runtime(session_id)
+    if runtime is None:
+        return JSONResponse({"detail": "session not found"}, status_code=404)
+    origin = _public_origin(request.scope)
+    prefix = _docs_prefix(request.url.path)  # /{id} or /{id}/mcp, as linked
+    mcp_url = f"{origin}/{session_id}/mcp"
+    try:
+        version = importlib.metadata.version("mcp-adapter")
+    except importlib.metadata.PackageNotFoundError:  # pragma: no cover - src runs only
+        version = "0.1.0"
+    config = FastMCPDocsConfig(
+        title=f"MCP session {session_id}",
+        version=version,
+        description=(
+            "Live tools of the frontend attached to this session. Read and call "
+            f"them over MCP at {mcp_url} — masked tools never "
+            "show up here, and the list updates the moment the frontend's "
+            "registry changes (tools.list_changed)."
+        ),
+        base_url=origin,
+        api_tools_route=f"{prefix}/api/tools",
+        favicon_url=f"{prefix}/favicon.svg",
+        openapi_servers=[{"url": origin, "description": "mcp-adapter"}],
+        verbose=False,
+    )
+    return HTMLResponse(get_docs_ui_template(config))
+
+
+async def session_docs_favicon(request: Request) -> Response:
+    """GET /{id}/favicon.svg — the package's default, under the session prefix."""
+    del request
+    return Response(
+        content=get_default_favicon_svg(),
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 class MCPDispatch:
     """ASGI endpoint routing ``/{id}/mcp`` to that session's MCP runtime.
 
@@ -369,6 +448,12 @@ def create_app() -> Starlette:
         Route("/sessions/{session_id}/messages", endpoint=messages_endpoint, methods=["POST"]),
         Route("/sessions/{session_id}", endpoint=delete_session_endpoint, methods=["DELETE"]),
         Route("/{session_id}/mcp", endpoint=MCPDispatch(), methods=["GET", "POST", "DELETE"]),
+        Route("/{session_id}/docs", endpoint=session_docs_page, methods=["GET"]),
+        Route("/{session_id}/mcp/docs", endpoint=session_docs_page, methods=["GET"]),
+        Route("/{session_id}/api/tools", endpoint=session_docs_api, methods=["GET"]),
+        Route("/{session_id}/mcp/api/tools", endpoint=session_docs_api, methods=["GET"]),
+        Route("/{session_id}/favicon.svg", endpoint=session_docs_favicon, methods=["GET"]),
+        Route("/{session_id}/mcp/favicon.svg", endpoint=session_docs_favicon, methods=["GET"]),
     ]
 
     app = Starlette(

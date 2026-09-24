@@ -15,6 +15,8 @@ export type ConnectionState = {
   sessionId: string | undefined;
   mcpUrl: string | undefined;
   postUrl: string | undefined;
+  /** Human-facing docs page for the live session; absent on older adapters. */
+  docsUrl: string | undefined;
 };
 
 /** Every JSON message the frontend can POST to `postUrl`. */
@@ -132,6 +134,7 @@ export class BridgeConnection {
     sessionId: undefined,
     mcpUrl: undefined,
     postUrl: undefined,
+    docsUrl: undefined,
   };
   private readonly listeners = new Set<ConnectionListener>();
 
@@ -260,7 +263,7 @@ export class BridgeConnection {
 
   private handleFrame(frame: SseFrame): void {
     if (frame.event === "session") {
-      let data: { id?: unknown; mcpUrl?: unknown; postUrl?: unknown };
+      let data: { id?: unknown; mcpUrl?: unknown; postUrl?: unknown; docsUrl?: unknown };
       try {
         data = JSON.parse(frame.data) as typeof data;
       } catch {
@@ -273,7 +276,12 @@ export class BridgeConnection {
       ) {
         return;
       }
-      this.adoptSession({ id: data.id, mcpUrl: data.mcpUrl, postUrl: data.postUrl });
+      this.adoptSession({
+        id: data.id,
+        mcpUrl: data.mcpUrl,
+        postUrl: data.postUrl,
+        docsUrl: typeof data.docsUrl === "string" ? data.docsUrl : undefined,
+      });
       return;
     }
     if (frame.event === "tool_call") {
@@ -306,6 +314,7 @@ export class BridgeConnection {
     id: string;
     mcpUrl: string;
     postUrl: string;
+    docsUrl: string | undefined;
   }): void {
     if (session.id !== this.state.sessionId) {
       // A NEW session id: the revision counter resets. Abandon any calls the
@@ -318,6 +327,7 @@ export class BridgeConnection {
       sessionId: session.id,
       mcpUrl: session.mcpUrl,
       postUrl: session.postUrl,
+      docsUrl: session.docsUrl,
     });
     this.onStreamReady();
   }
@@ -456,6 +466,7 @@ export class BridgeConnection {
       sessionId: undefined,
       mcpUrl: undefined,
       postUrl: undefined,
+      docsUrl: undefined,
     });
   }
 

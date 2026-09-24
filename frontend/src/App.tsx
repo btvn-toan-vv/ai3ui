@@ -41,7 +41,7 @@ export function App() {
   // Live view of the local registry plus the bridge connection. Tools and
   // context registered above stream to the adapter automatically; masked
   // tools stay listed here but are hidden from MCP clients server-side.
-  const { tools, context, sessionId, mcpUrl, status, error } = useRegistry();
+  const { tools, context, sessionId, mcpUrl, docsUrl, status, error } = useRegistry();
 
   return (
     <main className="app">
@@ -65,6 +65,14 @@ export function App() {
             session <code>{sessionId}</code>
             <br />
             MCP endpoint <code>{mcpUrl}</code>
+            {docsUrl && (
+              <>
+                {" — "}
+                <a href={docsUrl} target="_blank" rel="noreferrer">
+                  docs
+                </a>
+              </>
+            )}
           </p>
         )}
 

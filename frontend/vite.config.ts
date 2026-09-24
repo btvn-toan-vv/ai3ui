@@ -13,7 +13,7 @@ export default defineConfig({
     // makes a cross-origin call. Mirrors frontend/nginx.conf in prod.
     proxy: {
       "/sessions": "http://localhost:8123",
-      "^/sess_[0-9A-Za-z]+/mcp": "http://localhost:8123",
+      "^/sess_[0-9A-Za-z]+/(mcp|docs|api/tools|favicon\\.svg|mcp/docs|mcp/api/tools|mcp/favicon\\.svg)": "http://localhost:8123",
     },
   },
 });

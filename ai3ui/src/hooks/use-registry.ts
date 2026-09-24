@@ -12,6 +12,8 @@ export type UseRegistry = {
   sessionId: string | undefined;
   /** Public MCP endpoint for this session, issued by the server. */
   mcpUrl: string | undefined;
+  /** Human-facing docs page for the live session, issued by the server. */
+  docsUrl: string | undefined;
   /** State of the connection to the mcp-adapter server. */
   status: ConnectionStatus;
   /** Last connection/sync error; cleared once the connection is open again. */
@@ -31,6 +33,7 @@ export function useRegistry(): UseRegistry {
     context: lists.context,
     sessionId: connectionState.sessionId,
     mcpUrl: connectionState.mcpUrl,
+    docsUrl: connectionState.docsUrl,
     status: connectionState.status,
     error: connectionState.error,
   };

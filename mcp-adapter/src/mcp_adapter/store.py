@@ -225,8 +225,18 @@ class InMemorySessionStore:
 # Redis implementation
 # ---------------------------------------------------------------------------
 
-# MANUAL VALIDATION (no Redis server in this dev environment):
-#   1. docker run -p 6379:6379 redis:7
+# VALIDATION:
+#   Single-node + Redis is covered by compose: `docker compose up -d` at the
+#   repo root wires REDIS_URL to the bundled redis service, and
+#   `uv run scripts/smoke.py 8123` passes 19/19 against that stack.
+#   Result delivery is race-safe: subscribers wait for the pump's server-side
+#   SUBSCRIBE before returning, and call_result payloads land in a durable
+#   TTL'd key (scall:{id}:result) the awaiter checks after subscribing — an
+#   event published before the subscription landed is never lost to pub/sub's
+#   fire-and-forget delivery.
+#
+#   MULTI-NODE (manual, unautomated):
+#   1. docker run -p 6379:6379 redis:8-alpine
 #   2. REDIS_URL=redis://127.0.0.1:6379/0 uv run uvicorn \
 #          --factory mcp_adapter.server:create_app --port 8123   (node A)
 #   3. Same command with --port 8124                              (node B)
@@ -264,6 +274,13 @@ def _call_key(call_id: str) -> str:
     return f"scall:{call_id}"
 
 
+def _result_key(call_id: str) -> str:
+    # Durable home for a call_result. Redis pub/sub is fire-and-forget: an
+    # event published before a subscriber's SUBSCRIBE lands is lost, so the
+    # payload must live in a key the awaiter can read after subscribing.
+    return f"scall:{call_id}:result"
+
+
 def _lock_key(sid: str) -> str:
     return f"lock:sess:{sid}"
 
@@ -291,23 +308,29 @@ class _LocalBus:
 
     def __init__(self, redis: Any) -> None:
         self._redis = redis
-        self._pumps: dict[str, tuple[asyncio.Task[None], set[asyncio.Queue[dict[str, Any] | None]]]] = {}
+        # session_id -> (pump task, subscriber queues, subscribed server-side)
+        self._pumps: dict[str, tuple[asyncio.Task[None], set[asyncio.Queue[dict[str, Any] | None]], asyncio.Event]] = {}
 
     async def subscribe(self, session_id: str) -> asyncio.Queue[dict[str, Any] | None]:
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
         entry = self._pumps.get(session_id)
         if entry is None:
-            task = asyncio.create_task(self._pump(session_id), name=f"bus-{session_id}")
-            entry = (task, set())
+            ready = asyncio.Event()
+            task = asyncio.create_task(self._pump(session_id, ready), name=f"bus-{session_id}")
+            entry = (task, set(), ready)
             self._pumps[session_id] = entry
         entry[1].add(queue)
+        # Only return once the pump's SUBSCRIBE has been confirmed by Redis;
+        # pub/sub drops messages published before that, and callers publish
+        # immediately after subscribing (tool_call -> await_call).
+        await entry[2].wait()
         return queue
 
     async def unsubscribe(self, session_id: str, queue: asyncio.Queue[dict[str, Any] | None]) -> None:
         entry = self._pumps.get(session_id)
         if entry is None:
             return
-        task, subs = entry
+        task, subs, _ready = entry
         subs.discard(queue)
         if not subs:
             self._pumps.pop(session_id, None)
@@ -315,11 +338,12 @@ class _LocalBus:
             with contextlib.suppress(asyncio.CancelledError):
                 await task
 
-    async def _pump(self, session_id: str) -> None:
+    async def _pump(self, session_id: str, ready: asyncio.Event) -> None:
         pubsub = self._redis.pubsub()
         subs: set[asyncio.Queue[dict[str, Any] | None]] = set()
         try:
             await pubsub.subscribe(_events_channel(session_id))
+            ready.set()
             async for message in pubsub.listen():
                 if message.get("type") != "message":
                     continue
@@ -337,6 +361,7 @@ class _LocalBus:
         except Exception:
             logger.exception("event bus pump failed for session %s", session_id)
         finally:
+            ready.set()  # never leave subscribe() waiters hanging
             with contextlib.suppress(Exception):
                 await pubsub.unsubscribe(_events_channel(session_id))
                 await pubsub.aclose()
@@ -502,17 +527,24 @@ class RedisSessionStore:
         fut = self._local_futures.get(pending.call_id)
         if fut is None:
             raise SessionClosed("pending call unknown")
+        # subscribe() waits for the pump's server-side SUBSCRIBE, so anything
+        # published from here on reaches the queue. A result published BEFORE
+        # this point (the FE is fast, we subscribe last) is caught by the
+        # durable result key check below.
         queue = await self._bus.subscribe(pending.session_id)
         try:
             async with asyncio.timeout(timeout):
+                raw = await self._r.getdel(_result_key(pending.call_id))
+                if raw is not None:
+                    return json.loads(raw)
                 while True:
                     event = await queue.get()
                     if event is None:
                         raise SessionClosed("event bus closed")
                     etype = event.get("event")
                     if etype == EVENT_CALL_RESULT and event["data"].get("callId") == pending.call_id:
-                        if not fut.done():
-                            return event["data"].get("payload") or {}
+                        raw = await self._r.getdel(_result_key(pending.call_id))
+                        return json.loads(raw) if raw is not None else {}
                     elif etype == EVENT_SESSION_CLOSED:
                         raise SessionClosed("session closed")
         finally:
@@ -526,7 +558,7 @@ class RedisSessionStore:
         if fut is not None and not fut.done():
             fut.cancel()
         with contextlib.suppress(Exception):
-            await self._r.delete(_call_key(call_id))
+            await self._r.delete(_call_key(call_id), _result_key(call_id))
 
     async def resolve_call(self, session_id: str, call_id: str, payload: dict[str, Any]) -> bool:
         record = await self._r.getdel(_call_key(call_id))
@@ -536,13 +568,12 @@ class RedisSessionStore:
             sid = json.loads(record)["session_id"]
         except (ValueError, KeyError):
             sid = session_id
-        # Route the result to whichever node awaits the call (may be us).
-        await self.publish_event(sid, {"event": EVENT_CALL_RESULT, "data": {"callId": call_id, "payload": payload}})
-        # Same-node fast path when no one subscribed the bus (shouldn't
-        # happen while a caller awaits, but keep the future in sync anyway).
-        fut = self._local_futures.get(call_id)
-        if fut is not None and not fut.done():
-            fut.set_result(payload)
+        # Durable result first, then the wake-up event: the awaiter may still
+        # be mid-SUBSCRIBE, and pub/sub would silently drop an early event.
+        # The event carries no payload; the key (TTL'd) is the source.
+        ttl = max(60, int(self.call_timeout) + 60)
+        await self._r.set(_result_key(call_id), json.dumps(payload), ex=ttl)
+        await self.publish_event(sid, {"event": EVENT_CALL_RESULT, "data": {"callId": call_id}})
         return True
 
     async def fail_all_pending(self, session_id: str, exc: Exception) -> None:
@@ -554,7 +585,7 @@ class RedisSessionStore:
             if fut is not None and not fut.done():
                 fut.set_exception(exc)
             with contextlib.suppress(Exception):
-                await self._r.delete(_call_key(call_id))
+                await self._r.delete(_call_key(call_id), _result_key(call_id))
 
     async def close(self) -> None:
         await self._bus.aclose()

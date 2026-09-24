@@ -1,0 +1,40 @@
+# FE <-> mcp-adapter stack. http://localhost:8080 serves the UI; the UI's
+# browser talks to the adapter at http://localhost:8123 (baked into the
+# frontend bundle via the VITE_SERVER_URL build arg).
+#
+# The adapter runs on the RedisSessionStore here (docs/plan.md §7): session
+# state lives in redis with TTLs, so `server` can be replicated behind a
+# load balancer. Drop REDIS_URL (and this service) to go back to the
+# in-memory store for single-node dev.
+services:
+  server:
+    build: ./mcp-adapter
+    ports:
+      - "8123:8123"
+    environment:
+      SESSION_GRACE_SECONDS: "60"
+      CALL_TIMEOUT_SECONDS: "60"
+      LOG_LEVEL: info
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+      args:
+        VITE_SERVER_URL: http://localhost:8123
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+
+  redis:
+    image: redis:8-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

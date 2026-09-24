@@ -274,7 +274,8 @@ def create_store() -> SessionStore:
 
 
 def create_app() -> Starlette:
-    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    # .upper(): env values are case-insensitive by convention, logging is not.
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO").upper())
 
     grace = float(os.environ.get("SESSION_GRACE_SECONDS", "60"))
     call_timeout = float(os.environ.get("CALL_TIMEOUT_SECONDS", "60"))

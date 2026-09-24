@@ -1,0 +1,8 @@
+# Build contexts are the repo root — keep the heavy/irrelevant bits out.
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+ai2ui
+.git
+docs

@@ -218,6 +218,19 @@ export class Registry {
     return out;
   }
 
+  /**
+   * "Something live-read may have changed."
+   *
+   * The registry holds opaque live wrappers: a re-render can flip
+   * `available` or a slice's `value` without any register/unregister call,
+   * so without this the version never bumps and mask flips/value updates
+   * never reach the sync layer. Callers must compare before touching —
+   * every touch notifies subscribers, and notify→render→touch loops.
+   */
+  touch(): void {
+    this.bump();
+  }
+
   private bump(): void {
     this._version += 1;
     for (const listener of this.listeners) {

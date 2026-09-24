@@ -31,6 +31,34 @@ export function useContext(slice: ContextDefinition, deps: DependencyList = []):
     // Getters read the latest render; only `key` identity plus caller deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, slice.key, ...deps]);
+
+  /**
+   * Same change detection as `useTool`: a new `value`/`volatile` from the
+   * latest render is invisible to the registry (live getters mutate no
+   * state), so without a touch the slice syncs exactly once, at mount.
+   */
+  const lastSynced = useRef<{
+    value: string;
+    description: string;
+    volatile: boolean;
+  } | null>(null);
+  useLayoutEffect(() => {
+    const current = {
+      value: slice.value,
+      description: slice.description,
+      volatile: slice.volatile,
+    };
+    const prev = lastSynced.current;
+    if (
+      prev !== null &&
+      (prev.value !== current.value ||
+        prev.description !== current.description ||
+        prev.volatile !== current.volatile)
+    ) {
+      registry.touch();
+    }
+    lastSynced.current = current;
+  });
 }
 
 /** Same hook as `useContext`, under a name that never collides with React's own. */

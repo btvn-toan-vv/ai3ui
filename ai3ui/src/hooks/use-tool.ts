@@ -40,4 +40,28 @@ export function useTool<S>(tool: ToolDefinition<S>, deps: DependencyList = []): 
     // inputs belong in the dep list, plus whatever the caller passes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, tool.name, ...deps]);
+
+  /**
+   * Live-field change detection. The wrapper's getters mean a mask flip
+   * (`available` changing on state) mutates NOTHING in the registry, so
+   * there is no version bump and no sync — the hook must say it happened.
+   * Compare-then-touch only: an unconditional touch notifies subscribers on
+   * every render and loops render→notify→render.
+   */
+  const lastSynced = useRef<{ available: boolean; description: string } | null>(null);
+  useLayoutEffect(() => {
+    const current = {
+      available: tool.available ?? true,
+      description: tool.description,
+    };
+    const prev = lastSynced.current;
+    if (
+      prev !== null &&
+      (prev.available !== current.available ||
+        prev.description !== current.description)
+    ) {
+      registry.touch();
+    }
+    lastSynced.current = current;
+  });
 }

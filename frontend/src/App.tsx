@@ -2,9 +2,6 @@ import { useState } from "react";
 import { useContext, useRegistry, useTool } from "ai3ui";
 import { z } from "zod";
 
-/** mcp-adapter backend — not implemented yet. */
-const REGISTRY_SERVER_URL = "http://localhost:8000";
-
 export function App() {
   const [count, setCount] = useState(0);
 
@@ -41,8 +38,10 @@ export function App() {
     },
   });
 
-  // Streams the registry from the backend over SSE — masked tools included.
-  const { tools, context, status, error } = useRegistry(REGISTRY_SERVER_URL);
+  // Live view of the local registry plus the bridge connection. Tools and
+  // context registered above stream to the adapter automatically; masked
+  // tools stay listed here but are hidden from MCP clients server-side.
+  const { tools, context, sessionId, mcpUrl, status, error } = useRegistry();
 
   return (
     <main className="app">
@@ -56,11 +55,18 @@ export function App() {
       </section>
 
       <section className="debug">
-        <h2>Registry server</h2>
+        <h2>Bridge</h2>
         <p>
-          <code>{REGISTRY_SERVER_URL}</code> — {status}
+          {status}
           {error && <em> ({error.message})</em>}
         </p>
+        {sessionId && (
+          <p>
+            session <code>{sessionId}</code>
+            <br />
+            MCP endpoint <code>{mcpUrl}</code>
+          </p>
+        )}
 
         <h2>Registered tools</h2>
         <ul>

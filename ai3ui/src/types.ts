@@ -44,3 +44,19 @@ export type ContextDefinition = {
   value: string;
   volatile: boolean;
 };
+
+/** A tool as it crosses the wire to mcp-adapter (`schema` is plain JSON Schema). */
+export type ToolWire = {
+  name: string;
+  description: string;
+  schema: Record<string, unknown>;
+  available: boolean;
+};
+
+/** A context slice as it crosses the wire to mcp-adapter. */
+export type SliceWire = {
+  key: string;
+  description: string;
+  value: string;
+  volatile: boolean;
+};

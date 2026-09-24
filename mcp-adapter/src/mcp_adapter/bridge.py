@@ -28,7 +28,14 @@ from fastmcp.tools.base import Tool, ToolResult
 from mcp.server.streamable_http import TransportSecuritySettings
 from pydantic import PrivateAttr
 
-from mcp_adapter.sessions import PendingCall, Session, SessionClosed, ToolRec, exposed_tools
+from mcp_adapter.sessions import (
+    GET_UI_CONTEXT_TOOL,
+    PendingCall,
+    Session,
+    SessionClosed,
+    ToolRec,
+    exposed_tools,
+)
 from mcp_adapter.store import (
     EVENT_SESSION_CLOSED,
     EVENT_TOOL_CALL,
@@ -84,6 +91,57 @@ class BridgeTool(Tool):
         return await self._bridge.call_tool(self._session_id, self.name, arguments)
 
 
+#: Schema of the adapter-defined context reader.
+_GET_UI_CONTEXT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "key": {
+            "type": "string",
+            "description": "One of the feasible keys listed in the tool description.",
+        }
+    },
+    "required": ["key"],
+    "additionalProperties": False,
+}
+
+
+def _context_reader_description(session: Session) -> str:
+    """The built-in's description embeds the slice catalogue; re-rendered on
+    every context change (sorted for a stable diff)."""
+    lines = [
+        f"- {slice_.key} — {slice_.description}"
+        for _, slice_ in sorted(session.context.items())
+    ]
+    listing = "\n".join(lines) if lines else "(none published)"
+    return (
+        "Print the live state of the UI: reads one published context slice and "
+        "returns its current value. Feasible keys right now:\n" + listing
+    )
+
+
+class GetUiContextTool(Tool):
+    """Adapter-defined built-in: reads the synced context state server-side.
+
+    The FE is the source of truth and pushes slice updates; this tool never
+    round-trips the browser — it answers from the session's stored registry.
+    """
+
+    _bridge: Bridge = PrivateAttr()
+    _session_id: str = PrivateAttr()
+
+    def __init__(self, *, bridge: Bridge, session_id: str, description: str) -> None:
+        super().__init__(
+            name=GET_UI_CONTEXT_TOOL,
+            description=description,
+            parameters=_GET_UI_CONTEXT_SCHEMA,
+        )
+        self._bridge = bridge
+        self._session_id = session_id
+
+    async def run(self, arguments: dict[str, Any]) -> ToolResult:
+        return await self._bridge.get_ui_context(self._session_id, arguments.get("key"))
+
+
 def wire_result_to_mcp(payload: dict[str, Any]) -> ToolResult:
     """Map an FE ``call_result`` payload onto a tool result.
 
@@ -123,6 +181,7 @@ class SessionRuntime:
 
         self.server = FastMCP(name=f"mcp-adapter:{session_id}", on_duplicate="replace")
         self.server.add_middleware(_ConnectionTracker(self))
+        self._context_reader_desc: str | None = None
         self.manager = FastMCPStreamableHTTPSessionManager(
             app=self.server._mcp_server,
             json_response=False,  # SSE streams (spec default; supports out-of-band notifications)
@@ -174,6 +233,7 @@ class SessionRuntime:
         Returns True when the exposed set changed.
         """
         exposed = exposed_tools(session)
+        exposed.pop(GET_UI_CONTEXT_TOOL, None)  # belt, sessions.py is the braces
         changed = False
         for name in list(self.registered):
             if name not in exposed:
@@ -191,7 +251,18 @@ class SessionRuntime:
                 self.server.add_tool(BridgeTool(bridge=self.bridge, session_id=session.id, tool=tool))
                 changed = True
         self.registered = dict(exposed)
-        return changed
+        return self.sync_context_reader(session) or changed
+
+    def sync_context_reader(self, session: Session) -> bool:
+        """(Re)register the built-in when its rendered description changed."""
+        description = _context_reader_description(session)
+        if description == self._context_reader_desc:
+            return False
+        self._context_reader_desc = description
+        self.server.add_tool(
+            GetUiContextTool(bridge=self.bridge, session_id=session.id, description=description)
+        )
+        return True
 
     async def notify_tools_changed(self) -> None:
         """Best-effort ``notifications/tools/list_changed`` to all MCP clients."""
@@ -250,6 +321,26 @@ class Bridge:
 
     # -- tool call round-trip -------------------------------------------------
 
+    async def get_ui_context(self, session_id: str, key: Any) -> ToolResult:
+        """Answer the built-in reader from the synced registry; no FE hop."""
+        session = await self.store.get(session_id)
+        if session is None:
+            raise ToolError("session expired")
+        if not isinstance(key, str):
+            return wire_result_to_mcp(
+                {"ok": False, "message": "get_ui_context requires a string 'key'."}
+            )
+        slice_ = session.context.get(key)
+        if slice_ is None:
+            keys = sorted(session.context)
+            hint = (
+                f"Feasible keys: {', '.join(keys)}" if keys else "No context keys are published."
+            )
+            return wire_result_to_mcp(
+                {"ok": False, "message": f"Unknown context key {key!r}.", "hint": hint}
+            )
+        return wire_result_to_mcp({"ok": True, "message": slice_.value})
+
     async def call_tool(self, session_id: str, name: str, arguments: dict[str, Any]) -> ToolResult:
         session = await self.store.get(session_id)
         if session is None:
@@ -265,6 +356,7 @@ class Bridge:
         if pending is None:
             raise ToolError("session expired")
 
+        logger.warning("DBG publish tool_call %s %s", session_id, name)
         await self.store.publish_event(
             session_id,
             {

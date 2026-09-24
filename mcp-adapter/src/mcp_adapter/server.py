@@ -35,7 +35,7 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware as StarletteMiddleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response, StreamingResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
@@ -63,83 +63,150 @@ def _sse_frame(event: str, data: dict[str, Any]) -> str:
     return f"event: {event}\ndata: {json.dumps(data, separators=(',', ':'))}\n\n"
 
 
-def _mcp_url(request: Request, session_id: str) -> str:
-    """Absolute MCP URL, honoring X-Forwarded-Proto/Host behind proxies."""
-    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme).split(",")[0].strip()
-    host = (request.headers.get("x-forwarded-host") or request.url.netloc).split(",")[0].strip()
+def _mcp_url_headers(headers: list[tuple[bytes, bytes]], scope: Scope, session_id: str) -> str:
+    """Absolute MCP URL from raw ASGI headers, honoring X-Forwarded-Proto/Host."""
+    hdrs = {k.decode().lower(): v.decode() for k, v in headers}
+    proto = (hdrs.get("x-forwarded-proto") or scope.get("scheme", "http")).split(",")[0].strip()
+    host = (hdrs.get("x-forwarded-host") or hdrs.get("host") or "localhost").split(",")[0].strip()
     return f"{proto}://{host}/{session_id}/mcp"
 
 
-def _session_payload(request: Request, session_id: str) -> dict[str, Any]:
-    return {
-        "id": session_id,
-        "mcpUrl": _mcp_url(request, session_id),
-        "postUrl": f"/sessions/{session_id}/messages",
-    }
+class SessionSSE:
+    """Raw-ASGI Server-Sent-Events endpoint for the FE session stream.
 
+    Deliberately NOT a Starlette ``StreamingResponse``: that generator ran
+    inside Starlette's response task-group, and under concurrent MCP request
+    traffic it was poisoned by sibling scope cancels — the FE stream died
+    mid-session (uvicorn ran ``RequestResponseCycle`` cancellation through
+    our pending ``handle.get()``). Talked straight to ``send``/``receive``,
+    our task is exactly the request task; nothing else scopes it.
 
-async def _session_sse(request: Request, session_id: str) -> Response:
-    """Shared SSE implementation for session create and reattach."""
-    bridge: Bridge = request.app.state.bridge
-    store = bridge.store
+    ``create=True`` == ``GET /sessions``: mints the session (and its MCP
+    runtime) before the handshake frame. ``create=False`` == the reattach
+    route: same stream for an existing id, 404 when gone.
+    """
 
-    handle = await store.attach_stream(session_id)
-    if handle is None:
-        return JSONResponse({"detail": "session not found"}, status_code=404)
+    def __init__(self, *, create: bool) -> None:
+        self.create = create
 
-    async def stream() -> AsyncIterator[str]:
-        try:
-            yield _sse_frame("session", _session_payload(request, session_id))
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        assert scope["type"] == "http"
+        bridge: Bridge = scope["app"].state.bridge
+        store = bridge.store
+
+        if self.create:
+            session = await store.create()
+            runtime = await bridge.ensure_runtime(session.id)
+            if runtime is None:  # pragma: no cover - creation just succeeded
+                await self._plain(send, 500, b'{"detail":"could not create session"}')
+                return
+            session_id = session.id
+            logger.info("session created: %s", session_id)
+        else:
+            session_id = scope["path_params"]["session_id"]
+            if await store.get(session_id) is None:
+                await self._plain(send, 404, b'{"detail":"session not found"}')
+                return
+
+        handle = await store.attach_stream(session_id)
+        if handle is None:
+            await self._plain(send, 404, b'{"detail":"session not found"}')
+            return
+
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [
+                    (b"content-type", b"text/event-stream; charset=utf-8"),
+                    (b"cache-control", b"no-cache"),
+                    (b"x-accel-buffering", b"no"),  # defeat proxy buffering
+                ],
+            }
+        )
+
+        async def emit(text: str) -> bool:
+            try:
+                await send(
+                    {"type": "http.response.body", "body": text.encode(), "more_body": True}
+                )
+                return True
+            except (OSError, RuntimeError):
+                return False  # client vanished mid-write
+
+        async def wait_disconnect() -> None:
+            # First message is the (empty) request body; only afterwards does
+            # http.disconnect become meaningful. This task intentionally never
+            # returns on any other message.
+            first = await receive()
+            if first["type"] == "http.request" and first.get("more_body"):
+                await receive()
             while True:
-                try:
-                    event = await asyncio.wait_for(handle.get(), timeout=SSE_KEEPALIVE_SECONDS)
-                except TimeoutError:
-                    yield ":ping\n\n"
-                    with contextlib.suppress(Exception):
-                        await store.stream_heartbeat(session_id)
-                    continue
-                if event is None:
-                    break  # superseded by another stream / closed
-                name = event.get("event")
-                if name in _FORWARDED_EVENTS:
-                    yield _sse_frame(name, event.get("data") or {})
-                elif name == EVENT_SESSION_CLOSED:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return
+
+        watcher = asyncio.create_task(wait_disconnect())
+        try:
+            payload = {
+                "id": session_id,
+                "mcpUrl": _mcp_url_headers(scope["headers"], scope, session_id),
+                "postUrl": f"/sessions/{session_id}/messages",
+            }
+            if not await emit(_sse_frame("session", payload)):
+                return
+            while True:
+                waiter = asyncio.ensure_future(handle.get())
+                done, _pending = await asyncio.wait(
+                    {waiter, watcher}, timeout=SSE_KEEPALIVE_SECONDS,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if waiter not in done:
+                    waiter.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await waiter
+                if watcher in done:  # http.disconnect (task never completes otherwise)
+                    logger.warning("DBG client disconnect sid=%s", session_id)
                     break
-                # other internal events (e.g. call_result on the Redis bus)
-                # are not part of the FE-facing stream.
+                if waiter in done:
+                    event = waiter.result()
+                    if event is None:
+                        break  # superseded by another stream / closed
+                    name = event.get("event")
+                    if name in _FORWARDED_EVENTS:
+                        logger.warning("DBG emit event=%s sid=%s", name, session_id)
+                        if not await emit(_sse_frame(name, event.get("data") or {})):
+                            logger.warning("DBG emit FAILED sid=%s", session_id)
+                            break
+                    elif name == EVENT_SESSION_CLOSED:
+                        break
+                    # other internal events (e.g. call_result on the Redis bus)
+                    # are not part of the FE-facing stream.
+                    continue
+                # Neither finished: keepalive.
+                if not await emit(":ping\n\n"):
+                    break
+                with contextlib.suppress(Exception):
+                    await store.stream_heartbeat(session_id)
         finally:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
+            with contextlib.suppress(Exception):
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
             with contextlib.suppress(Exception):
                 await store.detach_stream(session_id, handle)
 
-    return StreamingResponse(
-        stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",  # defeat proxy buffering
-        },
-    )
-
-
-async def create_session_endpoint(request: Request) -> Response:
-    """GET /sessions — the FE handshake."""
-    bridge: Bridge = request.app.state.bridge
-    session = await bridge.store.create()
-    # Bring the MCP runtime up before the handshake completes so mcpUrl is
-    # usable the moment the FE receives it.
-    runtime = await bridge.ensure_runtime(session.id)
-    if runtime is None:  # pragma: no cover - creation just succeeded
-        return JSONResponse({"detail": "could not create session"}, status_code=500)
-    logger.info("session created: %s", session.id)
-    return await _session_sse(request, session.id)
-
-
-async def stream_session_endpoint(request: Request) -> Response:
-    """GET /sessions/{id}/stream — reattach to a live session."""
-    session_id = request.path_params["session_id"]
-    if await request.app.state.bridge.store.get(session_id) is None:
-        return JSONResponse({"detail": "session not found"}, status_code=404)
-    return await _session_sse(request, session_id)
+    @staticmethod
+    async def _plain(send: Send, status: int, body: bytes) -> None:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": status,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 async def messages_endpoint(request: Request) -> Response:
@@ -167,9 +234,12 @@ async def messages_endpoint(request: Request) -> Response:
         outcome = await store.apply_message(session_id, msg)
         if outcome is None:  # expired in a race
             return JSONResponse({"detail": "session not found"}, status_code=404)
-        if outcome.applied and outcome.exposed_changed:
+        if outcome.applied and (outcome.exposed_changed or outcome.context_changed):
             # Store mutation is complete; sync the MCP surface before 200 so
-            # the FE can rely on read-after-write.
+            # the FE can rely on read-after-write. context_changed covers the
+            # get_ui_context built-in: its description embeds the slice
+            # catalogue, so a key/description change re-renders it and the
+            # re-registration is what emits tools/list_changed.
             fresh = await store.get(session_id)
             if fresh is not None:
                 with contextlib.suppress(Exception):
@@ -296,8 +366,8 @@ def create_app() -> Starlette:
     bridge = Bridge(store, call_timeout=call_timeout, grace_seconds=grace)
 
     routes = [
-        Route("/sessions", endpoint=create_session_endpoint, methods=["GET"]),
-        Route("/sessions/{session_id}/stream", endpoint=stream_session_endpoint, methods=["GET"]),
+        Route("/sessions", endpoint=SessionSSE(create=True), methods=["GET"]),
+        Route("/sessions/{session_id}/stream", endpoint=SessionSSE(create=False), methods=["GET"]),
         Route("/sessions/{session_id}/messages", endpoint=messages_endpoint, methods=["POST"]),
         Route("/sessions/{session_id}", endpoint=delete_session_endpoint, methods=["DELETE"]),
         Route("/{session_id}/mcp", endpoint=MCPDispatch(), methods=["GET", "POST", "DELETE"]),

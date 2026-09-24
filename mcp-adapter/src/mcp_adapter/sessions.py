@@ -9,6 +9,7 @@ Redis-backed fleet.
 from __future__ import annotations
 
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -179,10 +180,25 @@ def _exposed_fingerprint(session: Session) -> dict[str, str]:
     return {name: sig(tool) for name, tool in exposed_tools(session).items()}
 
 
+def _context_fingerprint(session: Session) -> dict[str, str]:
+    """Key -> description of every slice: the text the built-in
+    ``get_ui_context`` description is rendered from (values excluded — a
+    value-only flip changes no listing)."""
+    return {key: s.description for key, s in session.context.items()}
+
+
+#: Name of the adapter-defined tool that reads UI context slices back. FE
+#: tools cannot shadow it — registrations under this name are dropped.
+GET_UI_CONTEXT_TOOL = "get_ui_context"
+
+logger_registry = logging.getLogger("mcp_adapter.sessions")
+
+
 @dataclass
 class ApplyOutcome:
     applied: bool  # False => stale revision, silently dropped
     exposed_changed: bool  # True => exposed tool set changed -> notify clients
+    context_changed: bool = False  # True => slice keys/descriptions changed (built-in reader text)
 
 
 def apply_message(session: Session, msg: dict[str, Any]) -> ApplyOutcome:
@@ -193,6 +209,7 @@ def apply_message(session: Session, msg: dict[str, Any]) -> ApplyOutcome:
     message shape first (see :func:`validate_message`).
     """
     before = _exposed_fingerprint(session)
+    before_context = _context_fingerprint(session)
 
     rev = int(msg["revision"])
     if rev <= session.revision:
@@ -202,25 +219,33 @@ def apply_message(session: Session, msg: dict[str, Any]) -> ApplyOutcome:
 
     mtype = msg["type"]
     if mtype == "registry.snapshot":
-        session.tools = {t.name: t for t in (ToolRec.from_wire(w) for w in msg["tools"])}
+        tools = [ToolRec.from_wire(w) for w in msg["tools"]]
+        tools = [t for t in tools if _not_reserved(t.name)]
+        session.tools = {t.name: t for t in tools}
         session.context = {s.key: s for s in (SliceRec.from_wire(w) for w in msg["context"])}
         session.pending_masks.clear()  # snapshot is the full truth
     elif mtype == "registry.tool_upsert":
         tool = ToolRec.from_wire(msg["tool"])
-        if tool.name in session.pending_masks:
-            # A mask arrived before the tool existed: keep enforcing it.
-            tool.available = session.pending_masks.pop(tool.name)
-        session.tools[tool.name] = tool
+        if not _not_reserved(tool.name):
+            pass
+        else:
+            if tool.name in session.pending_masks:
+                # A mask arrived before the tool existed: keep enforcing it.
+                tool.available = session.pending_masks.pop(tool.name)
+            session.tools[tool.name] = tool
     elif mtype == "registry.tool_remove":
         session.tools.pop(msg["name"], None)
     elif mtype == "registry.tool_mask":
         available = bool(msg["available"])
-        tool = session.tools.get(msg["name"])
-        if tool is not None:
-            tool.available = available
+        if not _not_reserved(msg["name"]):
+            pass  # the built-in is always exposed; FE masks don't apply
         else:
-            # Tool not registered (yet): remember the mask.
-            session.pending_masks[msg["name"]] = available
+            tool = session.tools.get(msg["name"])
+            if tool is not None:
+                tool.available = available
+            else:
+                # Tool not registered (yet): remember the mask.
+                session.pending_masks[msg["name"]] = available
     elif mtype == "registry.context_upsert":
         sl = SliceRec.from_wire(msg["slice"])
         session.context[sl.key] = sl
@@ -230,7 +255,21 @@ def apply_message(session: Session, msg: dict[str, Any]) -> ApplyOutcome:
         raise ValueError(f"unknown registry message type: {mtype}")
 
     after = _exposed_fingerprint(session)
-    return ApplyOutcome(applied=True, exposed_changed=before != after)
+    return ApplyOutcome(
+        applied=True,
+        exposed_changed=before != after,
+        context_changed=before_context != _context_fingerprint(session),
+    )
+
+
+def _not_reserved(name: str) -> bool:
+    if name == GET_UI_CONTEXT_TOOL:
+        logger_registry.warning(
+            "FE tried to register/mask reserved tool %r — ignored (adapter-defined)",
+            GET_UI_CONTEXT_TOOL,
+        )
+        return False
+    return True
 
 
 def validate_message(msg: Any) -> str | None:

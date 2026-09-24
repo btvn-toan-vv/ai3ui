@@ -15,12 +15,14 @@ RUN npm --prefix ai3ui ci && npm --prefix ai3ui run build
 COPY frontend frontend
 RUN npm --prefix frontend ci
 
-# Baked into the bundle. The browser runs on the host, so the default
-# points at the compose-published server port on localhost.
-ARG VITE_SERVER_URL=http://localhost:8123
+# Baked into the bundle. Empty (default) = same origin: nginx proxies the
+# adapter endpoints, so no cross-origin calls no matter how the UI is
+# reached. Set VITE_SERVER_URL only when the adapter lives elsewhere.
+ARG VITE_SERVER_URL=
 ENV VITE_SERVER_URL=$VITE_SERVER_URL
 RUN npm --prefix frontend run build
 
 FROM nginx:alpine
+COPY frontend/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /repo/frontend/dist /usr/share/nginx/html
 EXPOSE 80

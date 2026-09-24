@@ -264,11 +264,24 @@ def create_store() -> SessionStore:
     grace = float(os.environ.get("SESSION_GRACE_SECONDS", "60"))
     call_timeout = float(os.environ.get("CALL_TIMEOUT_SECONDS", "60"))
     if redis_url:
+        import redis
         import redis.asyncio as aioredis
 
-        client = aioredis.from_url(redis_url, decode_responses=True)
-        logger.info("using RedisSessionStore (%s)", redis_url)
-        return RedisSessionStore(client, grace_seconds=grace, call_timeout=call_timeout)
+        try:
+            # Probe before committing: redis runs on its own compose profile,
+            # so a profile-less `up` lands here with REDIS_URL set but Redis
+            # down (or DNS-unresolvable). Degrade, don't crash.
+            redis.from_url(redis_url, socket_connect_timeout=2).ping()
+        except Exception as exc:
+            logger.error(
+                "redis at %s unreachable (%s) — falling back to InMemorySessionStore",
+                redis_url,
+                exc,
+            )
+        else:
+            client = aioredis.from_url(redis_url, decode_responses=True)
+            logger.info("using RedisSessionStore (%s)", redis_url)
+            return RedisSessionStore(client, grace_seconds=grace, call_timeout=call_timeout)
     logger.info("using InMemorySessionStore")
     return InMemorySessionStore(grace_seconds=grace)
 

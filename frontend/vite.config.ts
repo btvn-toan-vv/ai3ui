@@ -8,4 +8,12 @@ export default defineConfig({
   resolve: {
     dedupe: ["react", "react-dom"],
   },
+  server: {
+    // Same-origin in dev too: proxy the adapter endpoints so the page never
+    // makes a cross-origin call. Mirrors frontend/nginx.conf in prod.
+    proxy: {
+      "/sessions": "http://localhost:8123",
+      "^/sess_[0-9A-Za-z]+/mcp": "http://localhost:8123",
+    },
+  },
 });

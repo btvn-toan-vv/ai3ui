@@ -1,11 +1,20 @@
-# FE <-> mcp-adapter stack. http://localhost:8080 serves the UI; the UI's
-# browser talks to the adapter at http://localhost:8123 (baked into the
-# frontend bundle via the VITE_SERVER_URL build arg).
+# FE <-> mcp-adapter stack on ONE origin: http://localhost:8080 serves the
+# UI and nginx proxies /sessions + /{sessionId}/mcp to the adapter, so
+# browsers (and MCP clients) only ever need :8080 — important when the UI
+# is reached through tunnels or forwarded ports. :8123 stays published for
+# direct adapter access.
 #
-# The adapter runs on the RedisSessionStore here (docs/plan.md §7): session
-# state lives in redis with TTLs, so `server` can be replicated behind a
-# load balancer. Drop REDIS_URL (and this service) to go back to the
-# in-memory store for single-node dev.
+# REDIS LIFECYCLE — start it once, then leave it alone:
+#   docker compose --profile redis up -d
+# redis runs on the "redis" profile, so every later plain command only
+# manages server+frontend — iterate, rebuild, even `down`, and redis (plus
+# its volume of session data) keeps running:
+#   docker compose up -d --build server frontend
+#   docker compose down        # <- redis survives this too
+# To stop redis as well:  docker compose --profile redis down
+#
+# REDIS_URL is always set on server; the adapter probes redis at startup
+# and falls back to the in-memory store when it isn't there.
 services:
   server:
     build: ./mcp-adapter
@@ -19,13 +28,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+        required: false # absent when the profile is off: probe + fallback
 
   frontend:
     build:
       context: .
       dockerfile: frontend/Dockerfile
-      args:
-        VITE_SERVER_URL: http://localhost:8123
     ports:
       - "8080:80"
     depends_on:
@@ -33,8 +41,16 @@ services:
 
   redis:
     image: redis:8-alpine
+    profiles: ["redis"]
+    # appendonly + a named volume: even a redis restart keeps session state.
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 20
+
+volumes:
+  redis-data:

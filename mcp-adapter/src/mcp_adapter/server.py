@@ -127,9 +127,7 @@ class SessionSSE:
 
         async def emit(text: str) -> bool:
             try:
-                await send(
-                    {"type": "http.response.body", "body": text.encode(), "more_body": True}
-                )
+                await send({"type": "http.response.body", "body": text.encode(), "more_body": True})
                 return True
             except (OSError, RuntimeError):
                 return False  # client vanished mid-write
@@ -158,7 +156,8 @@ class SessionSSE:
             while True:
                 waiter = asyncio.ensure_future(handle.get())
                 done, _pending = await asyncio.wait(
-                    {waiter, watcher}, timeout=SSE_KEEPALIVE_SECONDS,
+                    {waiter, watcher},
+                    timeout=SSE_KEEPALIVE_SECONDS,
                     return_when=asyncio.FIRST_COMPLETED,
                 )
                 if waiter not in done:
@@ -217,7 +216,7 @@ async def messages_endpoint(request: Request) -> Response:
 
     try:
         msg = await request.json()
-    except Exception:
+    except Exception:  # noqa: BLE001 - any JSON decode failure is a 400
         return JSONResponse({"detail": "malformed JSON"}, status_code=400)
 
     error = validate_message(msg)
@@ -304,8 +303,7 @@ async def _reaper(app: Starlette) -> None:
                 session = await store.get(session_id)
                 active = await store.stream_active(session_id)
                 if session is None or (
-                    not active
-                    and time.time() - session.last_seen > bridge.grace_seconds
+                    not active and time.time() - session.last_seen > bridge.grace_seconds
                 ):
                     logger.info("reaping session %s (stream active=%s)", session_id, active)
                     await bridge.teardown(session_id)
@@ -342,7 +340,7 @@ def create_store() -> SessionStore:
             # so a profile-less `up` lands here with REDIS_URL set but Redis
             # down (or DNS-unresolvable). Degrade, don't crash.
             redis.from_url(redis_url, socket_connect_timeout=2).ping()
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - probe failure means "no redis"
             logger.error(
                 "redis at %s unreachable (%s) — falling back to InMemorySessionStore",
                 redis_url,

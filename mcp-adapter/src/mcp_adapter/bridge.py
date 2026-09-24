@@ -25,12 +25,11 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.http import FastMCPStreamableHTTPSessionManager
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.tools.base import Tool, ToolResult
-from mcp.server.streamable_http import TransportSecuritySettings
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import PrivateAttr
 
 from mcp_adapter.sessions import (
     GET_UI_CONTEXT_TOOL,
-    PendingCall,
     Session,
     SessionClosed,
     ToolRec,
@@ -109,8 +108,7 @@ def _context_reader_description(session: Session) -> str:
     """The built-in's description embeds the slice catalogue; re-rendered on
     every context change (sorted for a stable diff)."""
     lines = [
-        f"- {slice_.key} — {slice_.description}"
-        for _, slice_ in sorted(session.context.items())
+        f"- {slice_.key} — {slice_.description}" for _, slice_ in sorted(session.context.items())
     ]
     listing = "\n".join(lines) if lines else "(none published)"
     return (
@@ -161,7 +159,7 @@ def wire_result_to_mcp(payload: dict[str, Any]) -> ToolResult:
     data = payload.get("data") if ok else None
     wire = mt.CallToolResult(
         content=[mt.TextContent(type="text", text=message)],
-        isError=not ok,
+        is_error=not ok,
     )
     if ok and data is not None:
         wire.structured_content = data
@@ -248,7 +246,9 @@ class SessionRuntime:
                 or prev.schema != tool.schema
                 or prev.available != tool.available
             ):
-                self.server.add_tool(BridgeTool(bridge=self.bridge, session_id=session.id, tool=tool))
+                self.server.add_tool(
+                    BridgeTool(bridge=self.bridge, session_id=session.id, tool=tool)
+                )
                 changed = True
         self.registered = dict(exposed)
         return self.sync_context_reader(session) or changed
@@ -333,9 +333,7 @@ class Bridge:
         slice_ = session.context.get(key)
         if slice_ is None:
             keys = sorted(session.context)
-            hint = (
-                f"Feasible keys: {', '.join(keys)}" if keys else "No context keys are published."
-            )
+            hint = f"Feasible keys: {', '.join(keys)}" if keys else "No context keys are published."
             return wire_result_to_mcp(
                 {"ok": False, "message": f"Unknown context key {key!r}.", "hint": hint}
             )

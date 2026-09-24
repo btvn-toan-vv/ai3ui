@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """End-to-end smoke test for mcp-adapter — no browser involved.
 
 Prereq: the server is running:
@@ -30,6 +29,7 @@ PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 8123
 BASE = f"http://127.0.0.1:{PORT}"
 
 import os
+
 TRACE_STREAM = bool(os.environ.get("TRACE_STREAM"))
 
 CHECKS: list[tuple[str, bool, str]] = []
@@ -113,6 +113,7 @@ class SessionStream:
         except Exception:
             if TRACE_STREAM:
                 import traceback
+
                 traceback.print_exc()
             raise
         finally:
@@ -151,7 +152,6 @@ class SessionStream:
             self._pump.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._pump
-
 
 
 def parse_sse_text(body: str, want_id: Any = None) -> dict[str, Any] | None:
@@ -199,8 +199,9 @@ class McpHttpClient:
             self.session_id = resp.headers["mcp-session-id"]
         return resp
 
-    async def rpc(self, method: str, params: dict[str, Any] | None = None,
-                  timeout: float = 30.0) -> dict[str, Any]:
+    async def rpc(
+        self, method: str, params: dict[str, Any] | None = None, timeout: float = 30.0
+    ) -> dict[str, Any]:
         self._next_id += 1
         req_id = self._next_id
         message: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
@@ -230,10 +231,12 @@ async def main() -> int:
         # -- 1. Handshake ----------------------------------------------------
         stream = SessionStream("127.0.0.1", PORT)
         await stream.open()
-        check("1. GET /sessions returns SSE",
-              stream.status == 200
-              and stream.headers.get("content-type", "").startswith("text/event-stream"),
-              f"status={stream.status}")
+        check(
+            "1. GET /sessions returns SSE",
+            stream.status == 200
+            and stream.headers.get("content-type", "").startswith("text/event-stream"),
+            f"status={stream.status}",
+        )
         reader = stream
         try:
             frame = await reader.next_event()
@@ -266,8 +269,7 @@ async def main() -> int:
                     {
                         "name": "alpha",
                         "description": "First tool",
-                        "schema": {"type": "object",
-                                   "properties": {"x": {"type": "number"}}},
+                        "schema": {"type": "object", "properties": {"x": {"type": "number"}}},
                         "available": True,
                     },
                     {
@@ -290,124 +292,196 @@ async def main() -> int:
             check("2. snapshot accepted", r.status_code == 200 and r.json().get("ok") is True)
 
             # -- 3. MCP initialize ------------------------------------------
-            init = await mcp.rpc("initialize", {
-                "protocolVersion": "2025-03-26",
-                "capabilities": {},
-                "clientInfo": {"name": "smoke", "version": "0.1.0"},
-            })
+            init = await mcp.rpc(
+                "initialize",
+                {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "smoke", "version": "0.1.0"},
+                },
+            )
             caps = init.get("result", {}).get("capabilities", {})
-            check("3. initialize: tools.listChanged === true",
-                  caps.get("tools", {}).get("listChanged") is True,
-                  json.dumps(caps))
+            check(
+                "3. initialize: tools.listChanged === true",
+                caps.get("tools", {}).get("listChanged") is True,
+                json.dumps(caps),
+            )
             status = await mcp.notify("notifications/initialized")
             check("3. notifications/initialized accepted", status in (200, 202), f"status={status}")
 
             # -- 4. tools/list: only the built-in reader + non-masked tool ----
             tools = await mcp.rpc("tools/list")
             names = [t["name"] for t in tools.get("result", {}).get("tools", [])]
-            check("4. tools/list shows built-in + only the exposed tool",
-                  names == ["get_ui_context", "alpha"], str(names))
+            check(
+                "4. tools/list shows built-in + only the exposed tool",
+                names == ["get_ui_context", "alpha"],
+                str(names),
+            )
 
             # -- 4b. get_ui_context (adapter-defined built-in) ---------------
             reader = next(t for t in tools["result"]["tools"] if t["name"] == "get_ui_context")
-            check("4b. reader description lists feasible keys",
-                  "- board" in reader.get("description", ""), reader.get("description", "")[:120])
-            got = await mcp.rpc("tools/call", {"name": "get_ui_context", "arguments": {"key": "board"}})
-            check("4b. get_ui_context(board) -> value",
-                  got.get("result", {}).get("content", [{}])[0].get("text") == "clean"
-                  and got.get("result", {}).get("isError") is False,
-                  json.dumps(got.get("result", {}))[:140])
-            unknown = await mcp.rpc("tools/call", {"name": "get_ui_context", "arguments": {"key": "nope"}})
-            check("4b. unknown key -> isError with feasible keys",
-                  unknown.get("result", {}).get("isError") is True
-                  and "board" in unknown["result"]["content"][0]["text"],
-                  json.dumps(unknown.get("result", {}))[:140])
+            check(
+                "4b. reader description lists feasible keys",
+                "- board" in reader.get("description", ""),
+                reader.get("description", "")[:120],
+            )
+            got = await mcp.rpc(
+                "tools/call", {"name": "get_ui_context", "arguments": {"key": "board"}}
+            )
+            check(
+                "4b. get_ui_context(board) -> value",
+                got.get("result", {}).get("content", [{}])[0].get("text") == "clean"
+                and got.get("result", {}).get("isError") is False,
+                json.dumps(got.get("result", {}))[:140],
+            )
+            unknown = await mcp.rpc(
+                "tools/call", {"name": "get_ui_context", "arguments": {"key": "nope"}}
+            )
+            check(
+                "4b. unknown key -> isError with feasible keys",
+                unknown.get("result", {}).get("isError") is True
+                and "board" in unknown["result"]["content"][0]["text"],
+                json.dumps(unknown.get("result", {}))[:140],
+            )
 
             # Masked tool refused even though a client could know its name.
             refused = await mcp.rpc("tools/call", {"name": "beta", "arguments": {}})
             res = refused.get("result", {})
-            check("4. tools/call on masked tool refused (isError)",
-                  res.get("isError") is True, json.dumps(res)[:120])
+            check(
+                "4. tools/call on masked tool refused (isError)",
+                res.get("isError") is True,
+                json.dumps(res)[:120],
+            )
 
             # -- 5. Unmask -> tools/list shows both ---------------------------
-            r = await client.post(post_url, json={
-                "type": "registry.tool_mask", "revision": 2, "name": "beta", "available": True,
-            })
+            r = await client.post(
+                post_url,
+                json={
+                    "type": "registry.tool_mask",
+                    "revision": 2,
+                    "name": "beta",
+                    "available": True,
+                },
+            )
             tools = await mcp.rpc("tools/list")
             names = sorted(t["name"] for t in tools.get("result", {}).get("tools", []))
-            check("5. unmasked tool appears in tools/list",
-                  r.status_code == 200 and names == ["alpha", "beta", "get_ui_context"], str(names))
+            check(
+                "5. unmasked tool appears in tools/list",
+                r.status_code == 200 and names == ["alpha", "beta", "get_ui_context"],
+                str(names),
+            )
 
             # -- 6. Tool-call round-trip over the session stream --------------
             async def call_and_wait(name: str, args: dict[str, Any]) -> dict[str, Any]:
-                return (await mcp.rpc("tools/call", {"name": name, "arguments": args},
-                                      timeout=30)).get("result", {})
+                return (
+                    await mcp.rpc("tools/call", {"name": name, "arguments": args}, timeout=30)
+                ).get("result", {})
 
             # 6a. ok:true path
             call_task = asyncio.create_task(call_and_wait("alpha", {"x": 41}))
             ev = await asyncio.wait_for(stream.next_event(timeout=30), timeout=15)
+            assert ev is not None
             data = json.loads(ev["data"]) if ev["event"] == "tool_call" else {}
-            check("6. tool_call event on session stream",
-                  ev["event"] == "tool_call"
-                  and data.get("name") == "alpha"
-                  and data.get("args") == {"x": 41},
-                  f"{ev['event']} {ev['data']}")
-            r = await client.post(post_url, json={
-                "type": "call_result", "callId": data["callId"],
-                "ok": True, "message": "hello from FE", "data": {"echo": True},
-            })
+            check(
+                "6. tool_call event on session stream",
+                ev["event"] == "tool_call"
+                and data.get("name") == "alpha"
+                and data.get("args") == {"x": 41},
+                f"{ev['event']} {ev['data']}",
+            )
+            r = await client.post(
+                post_url,
+                json={
+                    "type": "call_result",
+                    "callId": data["callId"],
+                    "ok": True,
+                    "message": "hello from FE",
+                    "data": {"echo": True},
+                },
+            )
             check("6. call_result accepted", r.status_code == 200)
             result = await asyncio.wait_for(call_task, timeout=10)
             content = result.get("content", [])
-            check("6. tools/call ok:true carries message",
-                  result.get("isError") in (False, None)
-                  and content and content[0].get("text") == "hello from FE",
-                  json.dumps(result)[:160])
-            check("6. structuredContent carries data",
-                  result.get("structuredContent") == {"echo": True},
-                  json.dumps(result.get("structuredContent")))
+            check(
+                "6. tools/call ok:true carries message",
+                result.get("isError") in (False, None)
+                and content
+                and content[0].get("text") == "hello from FE",
+                json.dumps(result)[:160],
+            )
+            check(
+                "6. structuredContent carries data",
+                result.get("structuredContent") == {"echo": True},
+                json.dumps(result.get("structuredContent")),
+            )
 
             # 6b. ok:false path — through a SECOND MCP session (any client
             # may call any exposed tool of the FE session).
             mcp2 = McpHttpClient(client, mcp_url)
-            await mcp2.rpc("initialize", {
-                "protocolVersion": "2025-03-26", "capabilities": {},
-                "clientInfo": {"name": "smoke-2", "version": "0.1.0"},
-            })
+            await mcp2.rpc(
+                "initialize",
+                {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "smoke-2", "version": "0.1.0"},
+                },
+            )
             await mcp2.notify("notifications/initialized")
 
             async def call2(name: str, args: dict[str, Any]) -> dict[str, Any]:
-                return (await mcp2.rpc("tools/call", {"name": name, "arguments": args},
-                                       timeout=30)).get("result", {})
+                return (
+                    await mcp2.rpc("tools/call", {"name": name, "arguments": args}, timeout=30)
+                ).get("result", {})
 
             call_task = asyncio.create_task(call2("beta", {}))
             try:
                 ev = await asyncio.wait_for(stream.next_event(timeout=30), timeout=15)
+                assert ev is not None
             except TimeoutError:
-                print("DIAG: stream.events.qsize()=%d" % stream.events.qsize())
+                print(f"DIAG: stream.events.qsize()={stream.events.qsize()}")
                 raise
             data = json.loads(ev["data"]) if ev["event"] == "tool_call" else {}
-            await client.post(post_url, json={
-                "type": "call_result", "callId": data["callId"],
-                "ok": False, "message": "boom", "hint": "check wiring",
-            })
+            await client.post(
+                post_url,
+                json={
+                    "type": "call_result",
+                    "callId": data["callId"],
+                    "ok": False,
+                    "message": "boom",
+                    "hint": "check wiring",
+                },
+            )
             result = await asyncio.wait_for(call_task, timeout=10)
             content = result.get("content", [])
-            check("6. tools/call ok:false -> isError with message + hint",
-                  result.get("isError") is True
-                  and content and content[0].get("text") == "boom check wiring",
-                  json.dumps(result)[:160])
+            check(
+                "6. tools/call ok:false -> isError with message + hint",
+                result.get("isError") is True
+                and content
+                and content[0].get("text") == "boom check wiring",
+                json.dumps(result)[:160],
+            )
 
             # -- 7. Stale revision dropped ------------------------------------
-            r = await client.post(post_url, json={
-                "type": "registry.snapshot", "revision": 1,
-                "tools": [], "context": [],
-            })
-            check("7. stale revision POST still ok",
-                  r.status_code == 200 and r.json().get("ok") is True)
+            r = await client.post(
+                post_url,
+                json={
+                    "type": "registry.snapshot",
+                    "revision": 1,
+                    "tools": [],
+                    "context": [],
+                },
+            )
+            check(
+                "7. stale revision POST still ok",
+                r.status_code == 200 and r.json().get("ok") is True,
+            )
             tools = await mcp.rpc("tools/list")
             names = sorted(t["name"] for t in tools.get("result", {}).get("tools", []))
-            check("7. stale revision not applied", names == ["alpha", "beta", "get_ui_context"], str(names))
+            check(
+                "7. stale revision not applied",
+                names == ["alpha", "beta", "get_ui_context"],
+                str(names),
+            )
         finally:
             await stream.close()
 
@@ -415,15 +489,28 @@ async def main() -> int:
         r = await client.delete(f"/sessions/{session_id}")
         check("8. DELETE session", r.status_code == 200 and r.json().get("ok") is True)
         r = await client.post(post_url, json={"type": "session.close"})
-        check("8. POST messages after close -> 404", r.status_code == 404, f"status={r.status_code}")
-        r = await client.post(mcp_url, json={
-            "jsonrpc": "2.0", "id": 1, "method": "initialize",
-            "params": {"protocolVersion": "2025-03-26", "capabilities": {},
-                       "clientInfo": {"name": "smoke", "version": "0.1.0"}},
-        }, headers={"Accept": "application/json, text/event-stream"})
+        check(
+            "8. POST messages after close -> 404", r.status_code == 404, f"status={r.status_code}"
+        )
+        r = await client.post(
+            mcp_url,
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-03-26",
+                    "capabilities": {},
+                    "clientInfo": {"name": "smoke", "version": "0.1.0"},
+                },
+            },
+            headers={"Accept": "application/json, text/event-stream"},
+        )
         check("8. /{id}/mcp after close -> 404", r.status_code == 404, f"status={r.status_code}")
         r = await client.get(f"/sessions/{session_id}/stream")
-        check("8. stream reattach after close -> 404", r.status_code == 404, f"status={r.status_code}")
+        check(
+            "8. stream reattach after close -> 404", r.status_code == 404, f"status={r.status_code}"
+        )
 
     failed = [c for c in CHECKS if not c[1]]
     print()

@@ -1,0 +1,20 @@
+# Python tooling for mcp-adapter. JS/TS packages intentionally unchecked here.
+ci:
+  autoupdate_schedule: weekly
+
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.9
+    hooks:
+      - id: ruff # lint, with autofix
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.414
+    hooks:
+      - id: pyright
+        # Whole-project check; filename-level checks misfire on imports.
+        pass_filenames: false
+        files: ^mcp-adapter/.*\.py$
+        args: [--project, mcp-adapter/pyrightconfig.json]

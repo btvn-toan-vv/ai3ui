@@ -67,10 +67,13 @@ class SessionStore(Protocol):
     async def stream_heartbeat(self, session_id: str) -> None:
         """Refresh stream liveness + session activity (called on keepalives)."""
         ...
+
     async def publish_event(self, session_id: str, event: dict[str, Any]) -> None: ...
 
     # pending tool calls
-    async def new_pending(self, session_id: str, name: str, args: dict[str, Any]) -> PendingCall | None: ...
+    async def new_pending(
+        self, session_id: str, name: str, args: dict[str, Any]
+    ) -> PendingCall | None: ...
     async def await_call(self, pending: PendingCall, timeout: float) -> dict[str, Any]:
         """Resolve with the FE's call_result payload.
 
@@ -80,7 +83,9 @@ class SessionStore(Protocol):
         ...
 
     async def drop_pending(self, session_id: str, call_id: str) -> None: ...
-    async def resolve_call(self, session_id: str, call_id: str, payload: dict[str, Any]) -> bool: ...
+    async def resolve_call(
+        self, session_id: str, call_id: str, payload: dict[str, Any]
+    ) -> bool: ...
     async def fail_all_pending(self, session_id: str, exc: Exception) -> None: ...
 
     async def close(self) -> None: ...
@@ -177,7 +182,9 @@ class InMemorySessionStore:
 
     # -- pending calls ------------------------------------------------------
 
-    async def new_pending(self, session_id: str, name: str, args: dict[str, Any]) -> PendingCall | None:
+    async def new_pending(
+        self, session_id: str, name: str, args: dict[str, Any]
+    ) -> PendingCall | None:
         if session_id not in self.sessions:
             return None
         pending = PendingCall(call_id=new_call_id(), session_id=session_id, name=name, args=args)
@@ -309,7 +316,9 @@ class _LocalBus:
     def __init__(self, redis: Any) -> None:
         self._redis = redis
         # session_id -> (pump task, subscriber queues, subscribed server-side)
-        self._pumps: dict[str, tuple[asyncio.Task[None], set[asyncio.Queue[dict[str, Any] | None]], asyncio.Event]] = {}
+        self._pumps: dict[
+            str, tuple[asyncio.Task[None], set[asyncio.Queue[dict[str, Any] | None]], asyncio.Event]
+        ] = {}
 
     async def subscribe(self, session_id: str) -> asyncio.Queue[dict[str, Any] | None]:
         queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue()
@@ -326,7 +335,9 @@ class _LocalBus:
         await entry[2].wait()
         return queue
 
-    async def unsubscribe(self, session_id: str, queue: asyncio.Queue[dict[str, Any] | None]) -> None:
+    async def unsubscribe(
+        self, session_id: str, queue: asyncio.Queue[dict[str, Any] | None]
+    ) -> None:
         entry = self._pumps.get(session_id)
         if entry is None:
             return
@@ -504,7 +515,9 @@ class RedisSessionStore:
 
     # -- pending calls ------------------------------------------------------
 
-    async def new_pending(self, session_id: str, name: str, args: dict[str, Any]) -> PendingCall | None:
+    async def new_pending(
+        self, session_id: str, name: str, args: dict[str, Any]
+    ) -> PendingCall | None:
         if not await self._r.exists(_session_key(session_id)):
             return None
         pending = PendingCall(call_id=new_call_id(), session_id=session_id, name=name, args=args)
@@ -542,7 +555,10 @@ class RedisSessionStore:
                     if event is None:
                         raise SessionClosed("event bus closed")
                     etype = event.get("event")
-                    if etype == EVENT_CALL_RESULT and event["data"].get("callId") == pending.call_id:
+                    if (
+                        etype == EVENT_CALL_RESULT
+                        and event["data"].get("callId") == pending.call_id
+                    ):
                         raw = await self._r.getdel(_result_key(pending.call_id))
                         return json.loads(raw) if raw is not None else {}
                     elif etype == EVENT_SESSION_CLOSED:

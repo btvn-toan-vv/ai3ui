@@ -285,7 +285,9 @@ def validate_message(msg: Any) -> str | None:
             return "registry message missing integer 'revision'"
         match mtype:
             case "registry.snapshot":
-                if not isinstance(msg.get("tools"), list) or not isinstance(msg.get("context"), list):
+                if not isinstance(msg.get("tools"), list) or not isinstance(
+                    msg.get("context"), list
+                ):
                     return "snapshot requires 'tools' and 'context' lists"
             case "registry.tool_upsert":
                 w = msg.get("tool")
@@ -313,7 +315,11 @@ def validate_message(msg: Any) -> str | None:
             return "call_result requires boolean 'ok'"
         if msg["ok"] and not isinstance(msg.get("message"), str):
             return "call_result ok:true requires string 'message'"
-        if not msg["ok"] and msg.get("message") is not None and not isinstance(msg.get("message"), str):
+        if (
+            not msg["ok"]
+            and msg.get("message") is not None
+            and not isinstance(msg.get("message"), str)
+        ):
             return "call_result ok:false 'message' must be a string"
     elif mtype == "session.close":
         pass

@@ -1,15 +1,13 @@
-# FE <-> mcp-adapter stack on ONE origin: http://localhost:8080 serves the
-# UI and nginx proxies /sessions + /{sessionId}/mcp to the adapter, so
-# browsers (and MCP clients) only ever need :8080 — important when the UI
-# is reached through tunnels or forwarded ports. :8123 stays published for
-# direct adapter access.
+# The mcp-adapter (:8123) and its optional redis. The frontend is not in
+# Docker on this branch: it runs with `npm run dev` (see README.md), and
+# Vite proxies /sessions + /{sessionId}/mcp to :8123.
 #
 # REDIS LIFECYCLE — start it once, then leave it alone:
 #   docker compose --profile redis up -d
 # redis runs on the "redis" profile, so every later plain command only
-# manages server+frontend — iterate, rebuild, even `down`, and redis (plus
-# its volume of session data) keeps running:
-#   docker compose up -d --build server frontend
+# manages server — iterate, rebuild, even `down`, and redis (plus its
+# volume of session data) keeps running:
+#   docker compose up -d --build server
 #   docker compose down        # <- redis survives this too
 # To stop redis as well:  docker compose --profile redis down
 #
@@ -30,14 +28,18 @@ services:
         condition: service_healthy
         required: false # absent when the profile is off: probe + fallback
 
-  frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    ports:
-      - "8080:80"
-    depends_on:
-      - server
+  # Disabled: the UMAP frontend links @bioturing-org/ai2ui from a local
+  # checkout and needs the private @bioturing registry, so no image builds
+  # from this repo alone. The old Dockerfile + nginx.conf built the counter
+  # demo and were removed with it.
+  # frontend:
+  #   build:
+  #     context: .
+  #     dockerfile: frontend/Dockerfile
+  #   ports:
+  #     - "8080:80"
+  #   depends_on:
+  #     - server
 
   redis:
     image: redis:8-alpine

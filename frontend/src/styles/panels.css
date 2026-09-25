@@ -1,0 +1,321 @@
+/* Plain CSS, light theme only — no Tailwind, no component library. */
+
+/* Toolbar */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.1rem;
+  font-size: 0.85rem;
+  color: #1f2933;
+  border-bottom: 1px solid #e3e8ec;
+}
+
+.toolbar-dataset {
+  font-weight: 600;
+}
+
+.toolbar-mode {
+  color: #52606d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.toolbar-spacer {
+  flex: 1 1 auto;
+}
+
+.toolbar button {
+  padding: 0.35em 0.8em;
+  font-size: 0.85rem;
+}
+
+/* App error banner */
+.app-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border: 1px solid #f3b7b7;
+  border-radius: 6px;
+  background: #fdecec;
+  color: #b91c1c;
+  font-size: 0.85rem;
+}
+
+.app-error-dismiss {
+  margin-left: auto;
+  padding: 0.15em 0.6em;
+  font-size: 0.8rem;
+  border-color: #f3b7b7;
+  background: #ffffff;
+}
+
+/* Semantic z-index scale. Arbitrary values (999, 9999) make stacking bugs
+   unfixable; these are the only layers this app has. */
+:root {
+  --z-overlay: 10; /* legend / colorbar floating on the scatter canvas */
+  --z-sticky: 20; /* sticky table headers inside the drawer */
+  --z-banner: 30; /* app-level error banner */
+}
+
+/* Layout: work area (scatter above, panel drawer below) + the chat rail.
+   The panels were a fixed 320px side column and the legend another 220px;
+   with the 420px chat rail that left the plot less than half the window.
+   Stacking gives the scatter full width, which a landscape UMAP wants. */
+.app-main-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  gap: 0.5rem;
+}
+
+.app-body {
+  display: flex;
+  width: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 1rem;
+}
+
+.app-work-area {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  gap: 0.5rem;
+}
+
+.app-scatter-area {
+  flex: 1 1 auto;
+  /* A floor, not 0. min-width:0 let the plot absorb every pixel a
+     misbehaving sibling demanded, until it vanished. Now it refuses to go
+     below 280px — if something else overflows, the PAGE scrolls and the bug
+     is visible, instead of the plot silently disappearing. */
+  min-width: 280px;
+  min-height: 0;
+}
+
+/* Right column, now holding MCPInfo. Was in chat.css, which is no longer loaded. */
+.app-chat-rail {
+  flex: 0 0 420px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* (The bottom drawer that briefly lived here is gone — the gene and marker
+   panels now live in the tabbed right rail, see rail.css.) */
+
+/* Gene panel — one row in the drawer: input on the left, chips flowing to
+   its right. Stacked it wasted a full row of height on an input that only
+   needs ~17rem. */
+.gene-panel {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.6rem;
+  border: 1px solid #d9dfe4;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.4rem 0.6rem;
+}
+
+.gene-panel-input-row {
+  display: flex;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+  width: 17rem;
+}
+
+.gene-panel-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0.4em 0.6em;
+  border: 1px solid #d9dfe4;
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+
+.gene-panel-input-row button {
+  padding: 0.35em 0.8em;
+  font-size: 0.85rem;
+  flex: 0 0 auto;
+}
+
+.gene-panel-hint {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: #92400e;
+}
+
+.gene-chip-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.gene-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.3rem 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #eef2f5;
+  font-size: 0.78rem;
+}
+
+.gene-chip-name {
+  font-weight: 600;
+}
+
+.gene-chip-range {
+  color: #52606d;
+  font-variant-numeric: tabular-nums;
+}
+
+.gene-chip-remove {
+  width: 1.3rem;
+  height: 1.3rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  font-size: 0.9rem;
+  line-height: 1;
+  color: #52606d;
+}
+
+.gene-chip-remove:hover {
+  background: #d9dfe4;
+  border-color: transparent;
+}
+
+/* DEG panel */
+.deg-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #d9dfe4;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0.4rem 0.6rem;
+  overflow: hidden;
+}
+
+.deg-panel-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 0 0 auto;
+}
+
+/* Full width now, so the picker no longer has to stretch to fill a 320px
+   column — it sizes to its longest label and leaves the rest to the table. */
+.deg-panel-controls select {
+  flex: 0 0 auto;
+  width: 13rem;
+  min-width: 0;
+  padding: 0.3em 0.4em;
+  border: 1px solid #d9dfe4;
+  border-radius: 6px;
+  font-size: 0.82rem;
+}
+
+.deg-panel-controls button {
+  flex: 0 0 auto;
+  padding: 0.35em 0.8em;
+  font-size: 0.85rem;
+}
+
+.deg-panel-warning {
+  margin-top: 0.5rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  background: #fff7e6;
+  color: #92400e;
+  font-size: 0.78rem;
+}
+
+.deg-panel-empty {
+  margin-top: 0.6rem;
+  color: #52606d;
+  font-size: 0.82rem;
+}
+
+.deg-table-wrap {
+  margin-top: 0.5rem;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Capped rather than full-bleed: stretched across ~1130px the five columns
+   drift so far apart that reading one row becomes a saccade exercise.
+   Grouping them keeps gene→log2FC→FDR→pct scannable in one sweep. */
+.deg-table {
+  width: 100%;
+  max-width: 58rem;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.deg-table caption {
+  text-align: left;
+  caption-side: top;
+  padding-bottom: 0.4rem;
+  color: #52606d;
+  font-size: 0.75rem;
+}
+
+.deg-table th,
+.deg-table td {
+  text-align: right;
+  padding: 0.25rem 0.4rem;
+  border-bottom: 1px solid #eef2f5;
+  font-variant-numeric: tabular-nums;
+}
+
+.deg-table th:first-child,
+.deg-table td:first-child {
+  text-align: left;
+}
+
+.deg-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: #ffffff;
+  font-weight: 600;
+  border-bottom: 1px solid #d9dfe4;
+}
+
+.deg-table-gene-button {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  color: #0072b2;
+  cursor: pointer;
+}
+
+.deg-table-gene-button:hover {
+  text-decoration: underline;
+}
+
+.deg-table tbody tr:hover {
+  background: #f6f8fa;
+}

@@ -1,0 +1,239 @@
+/**
+ * Base theme — life-sciences register. Light only, per spec.
+ *
+ * Palette: deep DNA blue + a life-green accent, on a pale cool ground.
+ *
+ * The obvious biotech move is bright cyan (#0EA5E9) chrome. Deliberately not
+ * used: two cluster colours already live in that hue (blue #0072B2, sky
+ * #56B4E9), so cyan chrome would compete with the data for the same visual
+ * channel. The chrome takes the DARK end of the range instead — deep teal
+ * frames the plot without arguing with it.
+ *
+ * Colour strategy stays **restrained**: the cluster palette and the
+ * expression ramps are the only saturated colour, because they are the only
+ * things carrying information. Accent is for interaction and selection only.
+ *
+ * Every foreground/background pair below is ≥4.5:1 (measured, not eyeballed):
+ * ink/page 8.65, ink/white 9.46, muted/white 5.67, accent/white 5.36,
+ * white/header 9.46, header-sub/header 5.73, green/white 5.48.
+ */
+:root {
+  /* Ink — deep teal-blue rather than neutral charcoal; the hue tint is what
+     makes the whole surface read as one family. */
+  --ink: #0c4a6e;
+  --ink-muted: #4a6b80;
+  --ink-on-dark: #ffffff;
+  --ink-on-dark-muted: #a9cfe3;
+
+  --surface: #ffffff;
+  --surface-sunken: #f4fafd;
+  --surface-hover: #e6f2f8;
+  --header-bg: #0c4a6e;
+
+  --line: #cfe3ee;
+  --line-strong: #a9cfe3;
+
+  /* Interaction. Darker than any cluster colour on purpose, so a selected
+     control can never be mistaken for a data point. */
+  --accent: #0e7490;
+  --accent-soft: #e2f2f8;
+  /* "Life green" — reserved for completed/positive states. */
+  --positive: #047857;
+  --positive-soft: #e6f6ef;
+
+  /* 4pt spacing scale, radii, and the shared easing curve. Consumed by
+     rail.css, chart.css and hitl.css — one source of truth so the palette
+     and rhythm cannot drift between the shell and the panels. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --radius: 8px;
+  --radius-sm: 5px;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  color: #0c4a6e;
+  background-color: #eef6fb;
+
+  /* System stack, not a web font. A scientific tool run locally should not
+     pay a network round-trip for type, and the ubiquitous UI faces (Inter et
+     al.) read as generic anyway. Character comes from the data: the numeric
+     columns below use a monospace stack with tabular figures, which is
+     domain-appropriate rather than decorative. */
+  font-family: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", Arial,
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  /* Pale cool ground, tinted toward the accent's own hue rather than
+     default-warm. White panels read as raised against it. */
+  background: #eef6fb;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+/* A dark band, not a white strip. This is the one place the brand colour is
+   allowed to be dominant: it is spatially separated from the plot, so it can
+   carry identity without stealing attention from the data below it. */
+.app-header {
+  flex: 0 0 auto;
+  padding: 0.5rem 1rem 0.45rem;
+  background: var(--header-bg);
+  color: var(--ink-on-dark);
+}
+
+.app-header h1 {
+  margin: 0 0 0.1rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--ink-on-dark);
+}
+
+/* The toolbar sits inside the dark band, so its text has to flip. */
+.app-header .toolbar {
+  border-bottom: none;
+  color: var(--ink-on-dark-muted);
+  padding-bottom: 0;
+}
+
+.app-header .toolbar-dataset {
+  color: var(--ink-on-dark);
+}
+
+.app-header .toolbar-mode {
+  color: var(--ink-on-dark-muted);
+}
+
+/* Controls on the dark band: outlined rather than filled, so they read as
+   secondary to the plot and do not become bright rectangles in the corner. */
+.app-header button:not(.ramp-control) {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.35);
+  color: var(--ink-on-dark);
+}
+
+.app-header button:not(.ramp-control):hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.6);
+}
+
+.app-header .ramp-control {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: var(--ink-on-dark);
+}
+
+.app-header .ramp-control:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.55);
+  color: var(--ink-on-dark);
+}
+
+.app-header button:focus-visible,
+.app-header .ramp-control:focus-visible {
+  outline-color: var(--ink-on-dark);
+}
+
+.app-main {
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.75rem 1rem 1rem;
+  box-sizing: border-box;
+}
+
+/* ---- Controls -----------------------------------------------------------
+   The Vite template's defaults (purple #646cff hover, 0.6em/1.2em padding)
+   were still in force here and are the reason the app read as generic.
+   These are the project's own. */
+
+button {
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  padding: 0.35em 0.75em;
+  font-size: 0.85rem;
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--ink);
+  background-color: var(--surface);
+  cursor: pointer;
+  transition: background-color 150ms cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+button:hover:not(:disabled) {
+  background-color: var(--surface-hover);
+  border-color: var(--line-strong);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* A real focus ring, not the UA default — keyboard users need to see it and
+   it must survive on both white and tinted surfaces. */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input,
+select {
+  font-family: inherit;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+/* Numeric data gets a monospace stack with tabular figures: columns line up,
+   digits don't jitter as values update, and it reads as measurement rather
+   than prose. This is where the interface's character lives. */
+.deg-table td,
+.deg-table th,
+.gene-chip-range,
+.colorbar-scale,
+.cluster-legend-count {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Gene symbols stay in the UI face — they're names, not measurements. */
+.deg-table td:first-child {
+  font-family: inherit;
+}
+
+/* Marker-table "Run DEG" while the picker names a group the table is not
+   showing: the click is now consequential, so the button says so. */
+.deg-run-button.is-pending {
+  border-color: var(--accent);
+  background-color: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
+}

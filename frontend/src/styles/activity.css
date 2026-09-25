@@ -1,0 +1,109 @@
+/* Plain CSS, light theme only — no Tailwind, no component library. */
+
+/* AgentActivityBar: persistent strip under the scatter reporting what the
+   LLM agent is doing right now. Fixed min-height and always mounted (see
+   AgentActivityBar.tsx) so the layout doesn't reflow between phases — a
+   strip that appears/disappears reads as a glitch, one that stays put and
+   just changes text reads as instrumentation. Colours reuse the app's
+   existing status vocabulary: grey/idle, blue/busy, red/error — the same
+   palette as .app-error-banner and .step-card-* rather than a new one. */
+.agent-activity-bar {
+  position: relative;
+  z-index: var(--z-banner);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 1.8rem;
+  padding: 0.3rem 0.6rem;
+  border: 1px solid #d9dfe4;
+  border-radius: 6px;
+  background: #f6f8fa;
+  font-size: 0.8rem;
+  color: #52606d;
+}
+
+.agent-activity-bar-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 0.85rem;
+  height: 0.85rem;
+  font-size: 0.75rem;
+  line-height: 1;
+}
+
+.agent-activity-bar-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: #9aa5b1;
+}
+
+.agent-activity-bar-spinner {
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  border: 2px solid #d9dfe4;
+  border-top-color: #0072b2;
+  animation: agent-activity-spin 0.7s linear infinite;
+}
+
+@keyframes agent-activity-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.agent-activity-bar-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  color: #1f2933;
+  transition: color 0.2s ease;
+}
+
+.agent-activity-bar-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-activity-bar-tool {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem;
+  color: #0072b2;
+}
+
+.agent-activity-bar.is-idle {
+  color: #92a0ab;
+}
+
+.agent-activity-bar.is-idle .agent-activity-bar-label {
+  color: #92a0ab;
+  font-weight: 500;
+}
+
+.agent-activity-bar.is-error {
+  border-color: #f3b7b7;
+  background: #fdecec;
+  color: #b91c1c;
+}
+
+.agent-activity-bar.is-error .agent-activity-bar-label {
+  color: #b91c1c;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-activity-bar-label {
+    transition: none;
+  }
+  .agent-activity-bar-spinner {
+    /* Static ring instead of a spin: still reads as "busy", just without
+       motion, for users who've asked to avoid it. */
+    animation: none;
+    border: none;
+    box-shadow: inset 0 0 0 2px #0072b2;
+  }
+}

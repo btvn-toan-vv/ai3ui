@@ -1,0 +1,225 @@
+/**
+ * Right rail (tabbed: Assistant / Genes / Markers) and the gradient ramp
+ * control, plus the semantic tokens the app shell uses.
+ *
+ * Register: data-dense tool. Density over decoration — tight padding, tabular
+ * figures, quiet chrome, and no ornament competing with the plot. Motion is
+ * 150-200ms and only ever conveys state.
+ */
+
+/* Tokens live in src/index.css — one source of truth, so the palette
+   cannot drift between the shell and the rail. */
+
+
+/* ---- Data rail: genes + markers, both always visible --------------------
+   Not tabbed. The agent fills these panels as it works, and a hidden panel
+   means invisible agent work — which is the one thing this app must not do. */
+
+.app-data-rail {
+  flex: 0 0 320px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  /* ⚠️ Without this, a flex item defaults to `min-width: auto`, which means
+     it REFUSES to shrink below its content's min-content width. The marker
+     table has `min-width: 19rem`, so the rail silently grew from 270px to
+     352px and stole that width from the plot — which does have min-width: 0
+     and therefore absorbed the entire loss. With enough content the plot
+     collapses toward zero and appears to "disappear".
+     Measured: work 579→514, data 287→352 after one 2-gene query. */
+  min-width: 0;
+}
+
+.data-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-height: 0;
+  height: 100%;
+}
+
+.data-section {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* The marker table takes whatever height is left; its own body scrolls. */
+.data-section-grow {
+  flex: 1 1 auto;
+}
+
+.data-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-3) 0;
+}
+
+.data-section-head h2 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0;
+}
+
+/* Live count — a quiet second signal that the agent just changed something. */
+.data-section-count {
+  font-size: 0.7rem;
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Flash on change. Fires for agent tool calls AND manual edits — the panel
+   is reporting "my contents changed", not "an AI touched me". Fades rather
+   than blinks so it reads as a settle, not an alarm. */
+@keyframes data-section-flash {
+  0% {
+    background-color: var(--accent-soft);
+    border-color: var(--accent);
+  }
+  100% {
+    background-color: var(--surface);
+    border-color: var(--line);
+  }
+}
+
+.data-section.is-flashing {
+  animation: data-section-flash 1100ms var(--ease-out);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Keep the signal, drop the animation: a static tinted border for the same
+     window still tells you which panel changed. */
+  .data-section.is-flashing {
+    animation: none;
+    border-color: var(--accent);
+    background-color: var(--accent-soft);
+  }
+}
+
+/* The section frames these already — no box inside a box. */
+.data-section .gene-panel,
+.data-section .deg-panel {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.data-section .gene-panel {
+  display: block;
+  flex: 0 0 auto;
+}
+
+.data-section .gene-panel-input-row {
+  width: 100%;
+}
+
+.data-section .deg-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Narrow column: let the marker table scroll sideways rather than crushing
+   the numeric columns into unreadable widths. */
+.data-section .deg-table-wrap {
+  overflow: auto;
+}
+
+/* The wrapper scrolls (overflow:auto above), so the table may exceed the
+   rail — but it must not PUSH the rail. min-width lives on the table, and the
+   rail's own `min-width: 0` is what stops it propagating outward. */
+.data-section .deg-table {
+  max-width: none;
+  min-width: 19rem;
+}
+
+.data-section .deg-table-wrap {
+  min-width: 0;
+}
+
+/* Below ~1500px the two fixed rails (320 + 420) start eating the plot. Give
+   the width back to the scatter rather than letting it become a stamp — the
+   rails degrade fine, the plot doesn't. Loaded after chat.css, so this
+   override of .app-chat-rail wins. */
+@media (max-width: 1500px) {
+  .app-data-rail {
+    flex-basis: 270px;
+  }
+  .app-chat-rail {
+    flex: 0 0 350px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .app-data-rail {
+    flex-basis: 240px;
+  }
+  .app-chat-rail {
+    flex: 0 0 310px;
+  }
+}
+
+/* ---- Ramp control ------------------------------------------------------- */
+
+.ramp-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+  color: var(--ink-muted);
+  transition: border-color 150ms var(--ease-out), background-color 150ms var(--ease-out);
+}
+
+.ramp-control:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-sunken);
+  color: var(--ink);
+}
+
+.ramp-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* The control's whole point: show the scale instead of naming it. */
+.ramp-control-swatch {
+  display: block;
+  width: 52px;
+  height: 14px;
+  border-radius: 999px;
+  /* Hairline keeps the pale end of grey→red from dissolving into the button */
+  box-shadow: inset 0 0 0 1px rgba(16, 24, 32, 0.12);
+}
+
+.ramp-control-label {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rail-tab,
+  .ramp-control {
+    transition: none;
+  }
+}
+
+/* Label removed — the gradient is the label, so the swatch is the control.
+   Slightly wider now that it stands alone and has to stay legible. */
+.ramp-control-swatch {
+  width: 60px;
+}

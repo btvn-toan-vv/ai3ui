@@ -1,0 +1,41 @@
+/**
+ * Chart rendered inside the chat transcript as a tool result.
+ *
+ * Sits visually *inside* the conversation, so it borrows the chat's rhythm
+ * rather than looking like a panel that escaped from the app shell: no heavy
+ * frame, no shadow, just a hairline and the app's own surface.
+ */
+
+.marker-chart {
+  margin: 0.35rem 0 0.6rem;
+  padding: 0.5rem 0.6rem 0.35rem;
+  border: 1px solid var(--line, #dde4ea);
+  border-radius: var(--radius, 8px);
+  background: var(--surface, #ffffff);
+}
+
+.marker-chart-caption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.3rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink, #1b2733);
+}
+
+/* The affordance has to be stated: a bar chart does not look clickable, and
+   the interaction is the whole point of rendering it here. */
+.marker-chart-hint {
+  font-weight: 400;
+  font-size: 0.68rem;
+  color: var(--ink-muted, #52606d);
+}
+
+.marker-chart-canvas {
+  width: 100%;
+  /* 10 bars at ~14px + labels. Fixed because ECharts needs a real height on
+     a flex/auto parent, and the bar count is fixed. */
+  height: 210px;
+}

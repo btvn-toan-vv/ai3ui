@@ -1,100 +1,114 @@
-import { useState } from "react";
-import { useContext, useRegistry, useTool } from "ai3ui";
-import { z } from "zod";
+import type { ReactNode } from "react";
+import { McpAI2UIProvider, MCPInfo } from "@bioturing-org/ai2ui/mcp";
+// The package ships one scoped stylesheet. Without this import the chat
+// renders unstyled — every rule lives under `.ai2ui-root` and every custom
+// property under `--ai2ui-*`, so it cannot collide with the app's own CSS.
+// Imported before the app's stylesheets so app rules win any tie.
+import "@bioturing-org/ai2ui/styles.css";
+import { DatasetProvider } from "./state/useDatasetStore";
+import { ViewProvider, useViewStore } from "./state/useViewStore";
+import { ScatterView } from "./components/ScatterView";
+import { Toolbar } from "./components/Toolbar";
+import { DataRail } from "./components/DataRail";
+// The chat is replaced by MCPInfo: an external MCP client drives the tools now.
+// import { ChatPanel } from "./components/ChatPanel";
+// import { AgentActivityBar } from "./components/AgentActivityBar";
+import { useSingleCell } from "./llm";
+import "./styles/panels.css";
+// import "./styles/chat.css";
+import "./styles/rail.css";
+import "./styles/activity.css";
+import "./styles/chart.css";
 
-export function App() {
-  const [count, setCount] = useState(0);
-
-  // State registration: the model reads this slice on every message.
-  useContext({
-    key: "counter",
-    description: "The current counter value shown on screen.",
-    value: String(count),
-    volatile: true,
-  });
-
-  // Tool registration: lets the model act on the app.
-  useTool({
-    name: "increment_counter",
-    description: "Increments the on-screen counter.",
-    params: z.object({
-      by: z.number().int().min(1).default(1).describe("How much to add."),
-    }),
-    handler: ({ by }) => {
-      setCount((c) => c + by);
-      return `Added ${by}.`;
-    },
-  });
-
-  // Tool masking: hidden from the model until the counter reaches 10.
-  useTool({
-    name: "reset_counter",
-    description: "Resets the counter to zero.",
-    params: z.object({}),
-    available: count >= 10,
-    handler: () => {
-      setCount(0);
-      return "Counter reset.";
-    },
-  });
-
-  // Live view of the local registry plus the bridge connection. Tools and
-  // context registered above stream to the adapter automatically; masked
-  // tools stay listed here but are hidden from MCP clients server-side.
-  const { tools, context, sessionId, mcpUrl, docsUrl, status, error } = useRegistry();
-
+function ErrorBanner() {
+  const { error, setError } = useViewStore();
+  if (!error) return null;
   return (
-    <main className="app">
-      <header>
-        <h1>ai3ui scaffold</h1>
-      </header>
+    <div className="app-error-banner" role="alert">
+      <span>{error}</span>
+      <button
+        type="button"
+        className="app-error-dismiss"
+        onClick={() => setError(null)}
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
 
-      <section className="counter">
-        <p className="count">{count}</p>
-        <button onClick={() => setCount((c) => c + 1)}>+1</button>
-      </section>
+/**
+ * `AI2UIProvider` no longer takes `tools`/`context` props — `useTool` and
+ * `useContext` are the only way to register, and both need
+ * `useEngineContext()`, which throws outside `AI2UIProvider`. So
+ * `useSingleCell()` has to run in a component rendered INSIDE the provider,
+ * not in `Ai2uiRoot` itself (which renders the provider).
+ *
+ * It also has to run inside `DatasetProvider`/`ViewProvider` — the tools and
+ * the ground-truth context it registers close over live view/dataset state,
+ * and that state only exists as React Context below those two providers.
+ */
+function SingleCellTools() {
+  useSingleCell();
+  return null;
+}
 
-      <section className="debug">
-        <h2>Bridge</h2>
-        <p>
-          {status}
-          {error && <em> ({error.message})</em>}
-        </p>
-        {sessionId && (
-          <p>
-            session <code>{sessionId}</code>
-            <br />
-            MCP endpoint <code>{mcpUrl}</code>
-            {docsUrl && (
-              <>
-                {" — "}
-                <a href={docsUrl} target="_blank" rel="noreferrer">
-                  docs
-                </a>
-              </>
-            )}
-          </p>
-        )}
+function Ai2uiRoot({ children }: { children: ReactNode }) {
+  return (
+    <McpAI2UIProvider
+      mcp={{ channel: "", persist: import.meta.env.DEV ? "sessionStorage" : "none" }}
+      user={null}
+      theme="light"
+      app={{ name: "single-cell assistant", map: "One page: a UMAP scatter, a data rail, and a panel showing the MCP connection." }}
+    >
+      <SingleCellTools />
+      {children}
+    </McpAI2UIProvider>
+  );
+}
 
-        <h2>Registered tools</h2>
-        <ul>
-          {tools.map((t) => (
-            <li key={t.name}>
-              <code>{t.name}</code>
-              {t.available === false && <em> (masked)</em>}
-            </li>
-          ))}
-        </ul>
-
-        <h2>Registered context</h2>
-        <ul>
-          {context.map((c) => (
-            <li key={c.key}>
-              <code>{c.key}</code>: {c.value}
-            </li>
-          ))}
-        </ul>
-      </section>
-    </main>
+export default function App() {
+  return (
+    <DatasetProvider>
+      <ViewProvider>
+        <Ai2uiRoot>
+          <div className="app-shell">
+            <header className="app-header">
+              <h1>single-cell assistant</h1>
+              <Toolbar />
+            </header>
+            <main className="app-main">
+              <div className="app-main-content">
+                <ErrorBanner />
+                {/* Three columns, all visible at once: plot · data · chat.
+                    The data panels were briefly tabbed, which defeated the
+                    point of the app — the agent would fill the marker table
+                    while that tab was hidden, so its work was invisible.
+                    Everything the agent can change is now on screen while it
+                    works. Freeing the legend into an overlay paid for the
+                    third column. */}
+                <div className="app-body">
+                  <div className="app-work-area">
+                    <div className="app-scatter-area">
+                      <ScatterView />
+                    </div>
+                    {/* Under the plot, not in the chat — it reports on the
+                        app, not the conversation. */}
+                    {/* <AgentActivityBar /> */}
+                  </div>
+                  <div className="app-data-rail">
+                    <DataRail />
+                  </div>
+                  <div className="app-chat-rail">
+                    {/* <ChatPanel /> */}
+                    <MCPInfo showConnect maxCalls={12} />
+                  </div>
+                </div>
+              </div>
+            </main>
+          </div>
+        </Ai2uiRoot>
+      </ViewProvider>
+    </DatasetProvider>
   );
 }

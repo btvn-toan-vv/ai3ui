@@ -1,18 +1,14 @@
 {
-  "compilerOptions": {
-    "target": "ES2020",
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "jsx": "react-jsx",
-    "strict": true,
-    "isolatedModules": true,
-    "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "skipLibCheck": true,
-    "noEmit": true
-  },
-  "include": ["src"]
+  /* Solution file. `tsc -b` builds every referenced project, so `npm run build`
+     type-checks the browser app and the Node server in one pass.
+
+     The split exists because the two halves need different lib/types: the app
+     needs DOM and must not see Node globals; the server needs @types/node and
+     must not see DOM. A single config cannot express both. */
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.server.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
 }

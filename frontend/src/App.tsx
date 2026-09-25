@@ -99,14 +99,16 @@ export default function App() {
                   <div className="app-data-rail">
                     <DataRail />
                   </div>
-                  <div className="app-chat-rail">
+                  {/* MCPInfo floats over the page now (below), so this column is gone. */}
+                  {/* <div className="app-chat-rail"> */}
                     {/* <ChatPanel /> */}
-                    <MCPInfo showConnect maxCalls={12} />
-                  </div>
+                    {/* <MCPInfo showConnect maxCalls={12} /> */}
+                  {/* </div> */}
                 </div>
               </div>
             </main>
           </div>
+          <MCPInfo variant="floating" showConnect maxCalls={12} />
         </Ai2uiRoot>
       </ViewProvider>
     </DatasetProvider>

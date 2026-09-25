@@ -163,7 +163,9 @@ body {
    were still in force here and are the reason the app read as generic.
    These are the project's own. */
 
-button {
+/* Not inside .ai2ui-root: the library's components style their own buttons, and an unlayered
+   rule here would beat its layered utilities. :where keeps the specificity of a bare `button`. */
+button:where(:not(.ai2ui-root *)) {
   border-radius: 6px;
   border: 1px solid var(--line);
   padding: 0.35em 0.75em;
@@ -177,12 +179,12 @@ button {
     border-color 150ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-button:hover:not(:disabled) {
+button:where(:not(.ai2ui-root *)):hover:not(:disabled) {
   background-color: var(--surface-hover);
   border-color: var(--line-strong);
 }
 
-button:disabled {
+button:where(:not(.ai2ui-root *)):disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
